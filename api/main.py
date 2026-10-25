@@ -37,6 +37,15 @@ from api.routes.upload import router as upload_router
 # Ensure seed CSV files exist
 generate_all_seed_data()
 
+# Ensure baseline is preserved and hydrate from Vercel Blob if active cloud dataset exists
+from services.blob_store import ensure_baseline_preserved, hydrate_local_cache
+try:
+    ensure_baseline_preserved()
+    hydrate_local_cache()
+except Exception as e:
+    import logging
+    logging.getLogger("riot_radar").warning("Startup Blob sync notice: %s", e)
+
 app = FastAPI(
     title="RIOT RADAR — S&OP Control Tower API",
     description="Deterministic Supply Chain Decision Engine & LangGraph Orchestration for Pulp Riot Juice Co.",
@@ -65,12 +74,15 @@ def get_health():
     """Health check endpoint confirming API status and operating mode."""
     groq_key = os.getenv("GROQ_API_KEY")
     mode = "LIVE_LLM_API" if groq_key else "DETERMINISTIC_FALLBACK_ENGINE"
+    from services.blob_store import is_blob_configured
+    blob_mode = "VERCEL_BLOB_PRIVATE" if is_blob_configured() else "LOCAL_CSV_ONLY"
     return {
         "status": "HEALTHY",
         "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
         "version": "1.0.0",
         "database_mode": "CSV_ONLY_PERSISTENCE",
         "operating_mode": mode,
+        "blob_storage": blob_mode,
     }
 
 # Include routers under /api

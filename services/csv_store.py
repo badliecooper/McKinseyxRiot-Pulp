@@ -198,11 +198,19 @@ def initialize_csv(table_name: str, force: bool = False) -> Path:
 def load_csv(table_name: str) -> pd.DataFrame:
     """Load a CSV file as a pandas DataFrame.
     
-    If the file does not exist, initializes it with empty schema.
+    If the file does not exist, attempts to hydrate from Vercel Blob first.
+    If still missing, initializes it with empty schema.
     Validates required columns and returns an empty DataFrame if empty.
     """
     file_path = get_data_path(table_name)
     with _FILE_LOCK:
+        if not file_path.exists():
+            try:
+                from services.blob_store import hydrate_local_cache
+                hydrate_local_cache()
+            except Exception:
+                pass
+
         if not file_path.exists() or os.path.getsize(file_path) == 0:
             initialize_csv(table_name, force=True)
         try:

@@ -19,6 +19,7 @@ class HealthResponse(BaseModel):
     version: str
     database_mode: str = "CSV_ONLY_PERSISTENCE"
     operating_mode: str
+    blob_storage: Optional[str] = None
 
 
 class ModuleStatus(BaseModel):

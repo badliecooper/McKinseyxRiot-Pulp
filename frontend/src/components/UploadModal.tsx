@@ -313,16 +313,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUpl
               <div>Records Ingested: <b className="text-scm-healthy">{uploadResult.records_inserted}</b></div>
               <div>Duplicates Skipped: <b className="text-cohere-muted">{uploadResult.duplicates_skipped}</b></div>
               <div>Period: <b className="text-white">{uploadResult.reporting_period}</b></div>
-              <div>Uploader: <b className="text-white">{uploadResult.uploader}</b></div>
-              <div>Timestamp: <b className="text-white">{uploadResult.timestamp.slice(11)}</b></div>
+              <div>Persistence: <b className="text-cohere-actionBlue">{uploadResult.blob_persisted ? "[VERCEL BLOB: PRIVATE]" : "[LOCAL CSV]"}</b></div>
+              <div>Active Dataset: <b className="text-white">{uploadResult.active_dataset_id ? `v${uploadResult.dataset_version}` : "v1"}</b></div>
             </div>
           </div>
         )}
 
         {/* Data Honesty Disclaimer */}
         <div className="p-2.5 rounded-xs bg-cohere-panel border border-cohere-border text-[10px] font-mono text-cohere-muted leading-relaxed">
-          <b>Mandatory Data Integrity Rule:</b> Ingested sales are appended to <code className="text-cohere-actionBlue">demand_history.csv</code>.
-          Forecast models, corrected latent demand, and inventory cover calculations will automatically refresh. Historical vintages are immutably preserved.
+          <b>Mandatory Data Integrity Rule:</b> Ingested sales are appended to <code className="text-cohere-actionBlue">demand_history.csv</code> and persisted to private Vercel Blob storage.
+          Forecast models, corrected latent demand, and inventory cover calculations will automatically refresh. Baseline sample dataset is immutably preserved.
         </div>
 
         {/* Modal Action Buttons */}

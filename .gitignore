@@ -30,3 +30,5 @@ Thumbs.db
 
 # Keep required demo data CSV files intact in data/
 !data/*.csv
+data/uploads/
+data/.blob_manifest.json

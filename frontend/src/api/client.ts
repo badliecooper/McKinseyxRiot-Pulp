@@ -159,6 +159,9 @@ export const api = {
       supported_channels: string[];
       data_honesty_badge: string;
       retailer_integration_status: string;
+      blob_persistence?: any;
+      active_dataset_version?: number;
+      active_dataset_id?: string;
     }>("/upload/status"),
   uploadSalesCsv: async (formData: FormData) => {
     const res = await fetch("/api/upload/sales", {
@@ -177,6 +180,21 @@ export const api = {
     }
     return res.json();
   },
+  getDatasets: () =>
+    fetchJson<{
+      status: string;
+      active_manifest: any;
+      blob_telemetry: any;
+    }>("/upload/datasets"),
+  resetToBaseline: () =>
+    fetchJson<{
+      status: string;
+      message: string;
+      active_version: number;
+      active_dataset_id: string;
+    }>("/upload/reset-baseline", {
+      method: "POST",
+    }),
   triggerDetection: (skuId?: string, depotId?: string) => {
     const params = new URLSearchParams();
     if (skuId) params.append("sku_id", skuId);

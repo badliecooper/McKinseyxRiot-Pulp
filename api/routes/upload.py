@@ -13,13 +13,23 @@ import datetime
 import io
 import os
 from typing import Dict, List, Optional, Any
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Body
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Body, Response
 from pydantic import BaseModel
 import pandas as pd
 
 import tools
 from config.business_rules import SKUS, DEPOTS
 from services.csv_store import load_csv, append_csv_row, save_csv
+from services.blob_store import (
+    is_blob_configured,
+    archive_uploaded_file,
+    fetch_archived_file,
+    publish_active_dataset,
+    get_active_manifest,
+    get_blob_telemetry_status,
+    reset_to_baseline,
+    BlobStorageError,
+)
 
 router = APIRouter(prefix="/upload", tags=["Data Ingestion"])
 
@@ -89,13 +99,18 @@ def get_upload_status():
     if not upload_hist.empty:
         last_record = upload_hist.iloc[-1].to_dict()
 
+    blob_telemetry = get_blob_telemetry_status()
+
     return {
         "status": "ONLINE",
         "last_upload": last_record,
+        "blob_persistence": blob_telemetry,
+        "active_dataset_version": blob_telemetry.get("active_dataset_version", 0),
+        "active_dataset_id": blob_telemetry.get("active_dataset_id", "baseline_v0"),
         "supported_channels": ["Modern Trade (MT)", "Quick Commerce (QC)", "General Trade (GT)"],
         "data_honesty_badge": (
             "Note: Lot-level shelf-life distribution and baseline ground-truth series are synthetic demo constructs "
-            "calibrated to case constraints. Daily uploaded sales are validated and persisted to local CSV demand store."
+            "calibrated to case constraints. Daily uploaded sales are validated and persisted to private Vercel Blob demand store."
         ),
         "retailer_integration_status": (
             "Offline / Portal Upload. No automated live EDI/API link with Blinkit, Zepto, or DMart dark stores. "
@@ -249,17 +264,30 @@ async def upload_sales_csv(
             detail=f"No valid records found to ingest. Errors: {'; '.join(errors[:5])}",
         )
 
-    # Persist valid rows to demand_history.csv
-    for r in valid_rows:
-        append_csv_row("demand_history", r)
-
-    # Persist upload metadata to upload_history.csv
+    # Generate unique upload tracking ID
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     upload_id = f"UPL-{datetime.datetime.now().strftime('%m%d%H%M')}-{len(valid_rows):03d}"
     min_date = min(dates_seen) if dates_seen else "N/A"
     max_date = max(dates_seen) if dates_seen else "N/A"
     reporting_period = f"{min_date} to {max_date}"
 
+    # 1. Archive raw uploaded file to private Vercel Blob store
+    raw_blob_path = None
+    if is_blob_configured():
+        try:
+            filename = file.filename if file and file.filename else "sales_upload.csv"
+            raw_blob_path = archive_uploaded_file(upload_id, filename, contents)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Vercel Blob storage failure archiving uploaded file: {e}. Ingestion aborted.",
+            )
+
+    # 2. Persist valid rows to demand_history.csv
+    for r in valid_rows:
+        append_csv_row("demand_history", r)
+
+    # 3. Persist upload metadata to upload_history.csv
     upload_meta = {
         "upload_id": upload_id,
         "uploaded_at": now_str,
@@ -270,9 +298,9 @@ async def upload_sales_csv(
         "records_inserted": len(valid_rows),
         "duplicates_skipped": skipped_duplicates,
         "errors_count": len(errors),
+        "blob_path": raw_blob_path or "local",
     }
 
-    # Ensure upload_history table exists and append
     hist_df = load_csv("upload_history")
     if hist_df.empty:
         new_df = pd.DataFrame([upload_meta])
@@ -280,18 +308,102 @@ async def upload_sales_csv(
     else:
         append_csv_row("upload_history", upload_meta)
 
-    # Trigger alarm evaluation and telemetry sync
+    # 4. Publish versioned snapshot and active pointer to private Vercel Blob
+    active_dataset_meta = None
+    if is_blob_configured():
+        try:
+            demand_all = load_csv("demand_history")
+            upload_all = load_csv("upload_history")
+            active_dataset_meta = publish_active_dataset(
+                {
+                    "demand_history": demand_all.to_csv(index=False),
+                    "upload_history": upload_all.to_csv(index=False),
+                },
+                upload_id=upload_id,
+                metadata={
+                    "source_channel": source_channel,
+                    "uploader": uploader_name,
+                    "reporting_period": reporting_period,
+                    "records_inserted": len(valid_rows),
+                    "raw_blob_path": raw_blob_path,
+                },
+            )
+        except Exception as e:
+            # Enforce Requirement 7: Do not silently fall back to stale data after a failed upload
+            raise HTTPException(
+                status_code=500,
+                detail=f"Vercel Blob persistence error: {e}. Dataset was not activated in cloud storage.",
+            )
+
+    # 5. Trigger alarm evaluation and telemetry sync
     tools._risk_svc.evaluate_and_sync_alarms()
 
     return {
         "status": "SUCCESS",
         "upload_id": upload_id,
-        "message": f"Successfully ingested {len(valid_rows):,} sales records into demand_history.csv.",
+        "message": f"Successfully ingested {len(valid_rows):,} sales records into demand_history.csv and persisted to Vercel Blob.",
         "uploader": uploader_name,
         "source_channel": source_channel,
         "reporting_period": reporting_period,
         "records_inserted": len(valid_rows),
         "duplicates_skipped": skipped_duplicates,
         "timestamp": now_str,
+        "blob_persisted": is_blob_configured(),
+        "dataset_version": active_dataset_meta.get("version", 1) if active_dataset_meta else 1,
+        "active_dataset_id": active_dataset_meta.get("active_dataset_id", "baseline_v0") if active_dataset_meta else "baseline_v0",
+        "raw_archive_path": raw_blob_path,
         "warnings": errors[:5] if errors else [],
     }
+
+
+@router.get("/datasets")
+def get_datasets_info():
+    """Retrieve active dataset version, manifest, and Vercel Blob storage telemetry."""
+    manifest = get_active_manifest()
+    telemetry = get_blob_telemetry_status()
+    return {
+        "status": "ONLINE",
+        "active_manifest": manifest,
+        "blob_telemetry": telemetry,
+    }
+
+
+@router.post("/reset-baseline")
+def reset_dataset_to_baseline():
+    """Restore active dataset to original sample baseline preserved in Vercel Blob."""
+    if not is_blob_configured():
+        raise HTTPException(
+            status_code=400,
+            detail="Vercel Blob is not configured. Baseline reset requires cloud storage.",
+        )
+    try:
+        result = reset_to_baseline()
+        # Re-evaluate alarms with baseline data
+        tools._risk_svc.evaluate_and_sync_alarms()
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to restore baseline dataset: {e}",
+        )
+
+
+@router.get("/raw-file/{upload_id}")
+def download_archived_raw_file(upload_id: str):
+    """Securely download raw archived CSV upload from private Vercel Blob via backend proxy.
+    
+    Protects Vercel Blob token by never exposing private URLs or tokens to the browser.
+    """
+    file_info = fetch_archived_file(upload_id)
+    if not file_info:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Archived file for upload ID '{upload_id}' not found.",
+        )
+    filename, content_bytes = file_info
+    return Response(
+        content=content_bytes,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+

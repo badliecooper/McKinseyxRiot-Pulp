@@ -10,3 +10,4 @@ langgraph>=0.2.0
 langchain-core>=0.3.0
 pytest>=8.0.0
 python-multipart>=0.0.9
+vercel>=0.12.0
