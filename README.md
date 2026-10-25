@@ -67,3 +67,4 @@ Run the full automated test suite (65 tests):
 ```bash
 python -m pytest tests/
 ```
+https://mc-kinseyx-riot-pulp-uvzu.vercel.app/control-tower - interactive hosted dashboard
