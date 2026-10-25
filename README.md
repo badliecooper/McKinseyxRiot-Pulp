@@ -1,70 +1,82 @@
-# RIOT RADAR — S&OP Autonomous Control Tower
+# RIOT RADAR
+### S&OP Autonomous Control Tower for Pulp Riot Juice Co.
 
-Deterministic Supply Chain Decision Engine & LangGraph Multi-Agent Orchestration for Pulp Riot Juice Co.
+**[Open Live Dashboard](https://mc-kinseyx-riot-pulp-uvzu.vercel.app/control-tower)**
 
----
+RIOT RADAR is a supply chain decision engine for demand sensing, stockout triage, and inventory rebalancing. It combines deterministic decision logic with LangGraph multi-agent orchestration to support Sales and Operations Planning (S&OP).
 
-## Architecture Overview
+## Core Capabilities
 
-- **Frontend**: React 18, Vite, ECharts, Lucide Icons, Institutional Cohere/Linear Anti-Slop Design System.
-- **Backend API**: FastAPI (REST endpoints under `/api`), Pydantic v2 strict schemas.
-- **Agent Orchestration**: LangGraph stategraph pipeline for autonomous demand sensing, stockout triage, and feasible rebalancing proposals.
-- **Persistence Layer**: Deterministic CSV Store backed by **private Vercel Blob cloud persistence** for serverless multi-instance synchronization.
+- **Demand Sensing:** Identify changes in demand and supply-demand imbalances.
+- **Stockout Triage:** Identify inventory risks and prioritize interventions.
+- **Inventory Rebalancing:** Generate feasible inventory reallocation proposals.
+- **Control Tower:** Monitor operational KPIs and supply chain risks.
+- **Agent Orchestration:** Coordinate decision workflows using LangGraph.
 
----
+## Architecture
 
-## Quick Start
+| Component | Technology |
+|---|---|
+| Frontend | React 18, Vite, ECharts, Lucide |
+| Backend | FastAPI, Pydantic v2 |
+| Orchestration | LangGraph |
+| Decision Engine | Deterministic supply chain logic |
+| Persistence | CSV storage, Vercel Blob |
 
-### 1. Requirements & Dependencies
-Ensure Python 3.10+ and Node.js 18+ are installed.
+## Local Setup
+
+**Requirements:** Python 3.10+ and Node.js 18+.
+
+### Install dependencies
 
 ```bash
-# Install backend dependencies (including official vercel Python SDK)
 python -m pip install -r requirements.txt
 
-# Install frontend dependencies
 cd frontend
 npm install
 npm run build
 cd ..
 ```
 
-### 2. Environment Variables (.env)
-Create or configure `.env` in the root directory:
+### Configure environment
 
-```bash
-# Required for live LLM agent (falls back to deterministic SCM engine if omitted)
-GROQ_API_KEY="gsk_..."
+Create a `.env` file in the project root.
 
-# Required for Vercel Blob cloud persistence
-BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
+```env
+GROQ_API_KEY=your_groq_api_key
+BLOB_READ_WRITE_TOKEN=your_vercel_blob_token
 ```
 
-### 3. Running the Server
+The Groq API key enables LLM-powered agent functionality. Without it, the application can fall back to the deterministic decision engine. The Blob token enables cloud persistence.
+
+### Start the application
 
 ```bash
-# Launch FastAPI backend with built React UI on http://127.0.0.1:8000
 python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
----
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
-## Vercel Blob Persistence
+## Data Persistence
 
-Full deployment and persistence architecture documentation is available in [docs/vercel_blob_deployment.md](docs/vercel_blob_deployment.md).
+Vercel Blob provides private cloud storage for datasets and uploads.
 
-- **Private Storage**: All uploads and datasets are stored with `access="private"`.
-- **Baseline Preservation**: Pristine sample dataset is preserved in `baseline/`.
-- **Dataset Versioning**: Every valid daily upload creates an identifiable version (`v1`, `v2`, ...).
-- **Cold-Start Hydration**: Automatically synchronizes local cache from Vercel Blob on startup.
+- The original sample dataset is preserved in `baseline/`.
+- Valid daily uploads create versioned datasets.
+- The local cache synchronizes with cloud storage during startup.
 
----
+Deployment details: [`docs/vercel_blob_deployment.md`](docs/vercel_blob_deployment.md).
 
-## Test Suite
+## Tests
 
-Run the full automated test suite (65 tests):
+Run the automated test suite:
 
 ```bash
 python -m pytest tests/
 ```
-https://mc-kinseyx-riot-pulp-uvzu.vercel.app/control-tower - interactive hosted dashboard
+
+## Project
+
+RIOT RADAR — Supply Chain Decision Intelligence for Pulp Riot Juice Co.
+
+**[Launch the Control Tower](https://mc-kinseyx-riot-pulp-uvzu.vercel.app/control-tower)**
