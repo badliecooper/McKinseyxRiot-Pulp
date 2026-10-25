@@ -1,0 +1,560 @@
+import React, { useState, useEffect } from "react";
+import { 
+  Bot, 
+  Send, 
+  CheckCircle, 
+  XCircle, 
+  Edit3, 
+  RefreshCw, 
+  ShieldCheck, 
+  Layers, 
+  Clock,
+  ArrowRight,
+  ShieldAlert,
+  Sparkles,
+  Check,
+  X,
+  FileCheck,
+  Cpu,
+  AlertTriangle
+} from "lucide-react";
+import { api } from "../api/client";
+import { RebalancingProposal } from "../types";
+
+export const AICopilot: React.FC = () => {
+  const [operatingMode, setOperatingMode] = useState<string>("DETERMINISTIC_FALLBACK_ENGINE");
+  const [recommendations, setRecommendations] = useState<RebalancingProposal[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [triggering, setTriggering] = useState<boolean>(false);
+  const [filterStatus, setFilterStatus] = useState<string>("PENDING");
+
+  // Chat state
+  const [messages, setMessages] = useState<Array<{ 
+    sender: "user" | "copilot"; 
+    text: string; 
+    mode?: string;
+    evidence?: any;
+    suggestedActions?: any[];
+  }>>([
+    {
+      sender: "copilot",
+      text: "**[S&OP EXCEPTION GOVERNANCE ONLINE]**\nMonitoring 45 SKU–Depot combinations across 9 regional depots. I provide mathematically grounded diagnostics for stock-out censored demand, donor safety stock verification (≥21d), and feasible inter-depot transfers. All operational actions require explicit human approval.",
+      mode: "Rule-based mode",
+    },
+  ]);
+  const [inputMessage, setInputMessage] = useState<string>("");
+  const [chatLoading, setChatLoading] = useState<boolean>(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
+
+  // Decision & Modal states
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [modifyingRec, setModifyingRec] = useState<RebalancingProposal | null>(null);
+  const [modifiedQty, setModifiedQty] = useState<number>(0);
+  const [rejectingRec, setRejectingRec] = useState<RebalancingProposal | null>(null);
+  const [rejectionNote, setRejectionNote] = useState<string>("");
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [hRes, recRes] = await Promise.all([
+        api.getHealth(),
+        api.getRecommendations(),
+      ]);
+      setOperatingMode(hRes.operating_mode === "DETERMINISTIC_FALLBACK_ENGINE" ? "Rule-based mode" : hRes.operating_mode);
+      setRecommendations(recRes.recommendations);
+    } catch (e: any) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleTriggerDetection = async () => {
+    try {
+      setTriggering(true);
+      const res = await api.triggerDetection();
+      setStatusMessage(`Detection Pipeline executed (Run: ${res.run_id}). Generated ${res.recommendations_generated.length} pending tickets.`);
+      loadData();
+    } catch (e: any) {
+      alert("Pipeline trigger failed: " + e.message);
+    } finally {
+      setTriggering(false);
+    }
+  };
+
+  const handleDecision = async (
+    recId: string,
+    decision: "APPROVE" | "MODIFY" | "REJECT",
+    modQty?: number,
+    notes?: string
+  ) => {
+    try {
+      const res = await api.postApprovalDecision(recId, decision, "Executive-Planner-UI", modQty, notes);
+      setStatusMessage(res.summary_message);
+      loadData();
+    } catch (e: any) {
+      alert("Decision failed: " + e.message);
+    }
+  };
+
+  const handleSendMessage = async (userText: string) => {
+    if (!userText.trim()) return;
+
+    setChatError(null);
+    setLastFailedMessage(null);
+    setInputMessage("");
+    
+    const newHistory = [...messages, { sender: "user" as const, text: userText }];
+    setMessages(newHistory);
+
+    try {
+      setChatLoading(true);
+      const res = await api.postCopilotChat(userText, undefined, undefined, newHistory);
+      setMessages((prev) => [
+        ...prev, 
+        { 
+          sender: "copilot", 
+          text: res.reply, 
+          mode: res.operating_mode === "DETERMINISTIC_FALLBACK_ENGINE" ? "Rule-based mode" : res.operating_mode,
+          evidence: res.grounded_evidence,
+          suggestedActions: res.suggested_actions
+        }
+      ]);
+    } catch (err: any) {
+      setChatError(err.message || "Failed to reach SCM Copilot service");
+      setLastFailedMessage(userText);
+      setMessages((prev) => [
+        ...prev,
+        { sender: "copilot", text: "Error connecting to SCM Copilot service: " + (err.message || "Network error. Click Retry to resubmit.") },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const filteredRecs = recommendations.filter(r => {
+    if (filterStatus === "ALL") return true;
+    return r.status === filterStatus;
+  });
+
+  const pendingCount = recommendations.filter(r => r.status === "PENDING").length;
+
+  return (
+    <div className="space-y-5 pb-8">
+      {/* 1. TOP HEADER & OPERATIONAL MODE */}
+      <section className="space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-cohere-border pb-3">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-white flex items-center space-x-2">
+              <span>Governed Exception Management &amp; AI Copilot</span>
+              <span className="font-mono text-[10px] text-cohere-muted border border-cohere-border px-2 py-0.5 rounded-pill">
+                HUMAN-IN-THE-LOOP
+              </span>
+            </h1>
+            <p className="text-xs text-cohere-muted mt-0.5">
+              LangGraph two-phase orchestration: agent proposes, humans approve. Zero autonomous execution without signature.
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleTriggerDetection}
+              disabled={triggering}
+              className="flex items-center space-x-1.5 px-4 py-2 rounded-pill bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition-colors"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${triggering ? "animate-spin" : ""}`} />
+              <span>{triggering ? "Scanning..." : "Run 6-Node Detection Pipeline"}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Status Confirmation Banner */}
+        {statusMessage && (
+          <div className="p-3 rounded-sm bg-teal-950/40 border border-teal-500/30 text-xs font-mono text-teal-300 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <FileCheck className="w-4 h-4 text-teal-400" />
+              <span>{statusMessage}</span>
+            </div>
+            <button onClick={() => setStatusMessage(null)} className="text-sm font-bold hover:text-white">✕</button>
+          </div>
+        )}
+      </section>
+
+      {/* 2. MAIN SPLIT VIEW: EXCEPTION TICKETS (LEFT) & CHAT COPILOT (RIGHT) */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* LEFT COLUMN: IBP EXCEPTION TICKETS (7 COLS) */}
+        <div className="lg:col-span-7 space-y-3">
+          <div className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-cohere-border pb-3">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-semibold text-white tracking-wide uppercase font-mono">
+                  Operational Recommendation Tickets
+                </span>
+                <span className="font-mono text-[10px] text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-pill">
+                  {pendingCount} PENDING APPROVAL
+                </span>
+              </div>
+
+              {/* Status filter tabs */}
+              <div className="flex items-center space-x-1 text-xs">
+                {["PENDING", "APPROVED", "REJECTED", "ALL"].map(st => (
+                  <button
+                    key={st}
+                    onClick={() => setFilterStatus(st)}
+                    className={`px-3 py-1 rounded-pill text-[11px] font-mono transition-colors ${
+                      filterStatus === st 
+                        ? "bg-cohere-surface text-white border border-cohere-border font-medium" 
+                        : "text-cohere-muted hover:text-white border border-transparent"
+                    }`}
+                  >
+                    {st}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {filteredRecs.length === 0 ? (
+              <div className="p-8 text-center text-xs font-mono text-cohere-muted bg-cohere-panel rounded-sm border border-cohere-border">
+                No recommendation tickets found matching filter [{filterStatus}].
+              </div>
+            ) : (
+              <div className="space-y-3.5 max-h-[640px] overflow-y-auto pr-1">
+                {filteredRecs.map((rec) => {
+                  const isPending = rec.status === "PENDING";
+                  const isApproved = rec.status === "APPROVED";
+                  const isRejected = rec.status === "REJECTED";
+
+                  return (
+                    <div 
+                      key={rec.recommendation_id}
+                      className="p-4 rounded-sm bg-cohere-panel border border-cohere-border space-y-3 hover:border-cohere-muted/60 transition-colors"
+                    >
+                      {/* Ticket Header Bar */}
+                      <div className="flex items-center justify-between border-b border-cohere-border pb-2 font-mono text-xs">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-medium text-white">[{rec.recommendation_id}]</span>
+                          <span className={
+                            rec.priority === "P1" 
+                              ? "font-mono text-[10px] text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded-pill" 
+                              : "font-mono text-[10px] text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-pill"
+                          }>
+                            [{rec.priority}]
+                          </span>
+                          <span className="text-cohere-muted text-[10px]">[{rec.module}]</span>
+                        </div>
+                        <span className={
+                          isApproved 
+                            ? "font-mono text-[10px] text-teal-400 border border-teal-500/30 px-2 py-0.5 rounded-pill" 
+                            : isRejected 
+                            ? "font-mono text-[10px] text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded-pill" 
+                            : "font-mono text-[10px] text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-pill"
+                        }>
+                          [{rec.status}]
+                        </span>
+                      </div>
+
+                      {/* Bottleneck Diagnosis (1 line) */}
+                      <div className="text-xs text-white font-medium leading-relaxed">
+                        {rec.diagnosis || `${rec.sku_id} @ ${rec.destination_depot_id}: stock-out imminent due to velocity surge; rebalance from surplus donor.`}
+                      </div>
+
+                      {/* Quantified Trade-Off Strip (4 Mini-Columns) */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 p-3 rounded-sm bg-cohere-card border border-cohere-border text-xs font-mono">
+                        <div>
+                          <span className="text-cohere-muted block text-[10px] uppercase">Action:</span>
+                          <span className="font-medium text-white">
+                            Move {rec.quantity_bottles.toLocaleString()} btls
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-cohere-muted block text-[10px] uppercase">Lane &amp; Lead Time:</span>
+                          <span className="text-neutral-300">
+                            {rec.lead_time_days}d transit + 1d apprv = <b>{rec.eta_days}d ETA</b>
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-cohere-muted block text-[10px] uppercase">Cost Impact:</span>
+                          <span className="text-neutral-300 tabular-nums">
+                            ₹{Math.round(rec.cost_inr).toLocaleString()} (@ ₹1.50)
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-cohere-muted block text-[10px] uppercase">Donor Cover:</span>
+                          <span className="text-teal-400 font-medium tabular-nums">
+                            Post: {rec.donor_post_cover_days}d (&ge; 21d Safe)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Selection Rationale & Rejected Alternatives */}
+                      {(rec.selection_rationale || rec.rejected_alternatives) && (
+                        <div className="p-2.5 rounded-sm bg-cohere-card/60 border border-cohere-border/60 text-[11px] font-mono space-y-1">
+                          {rec.selection_rationale && (
+                            <div className="text-neutral-200 flex items-start space-x-1.5">
+                              <span className="text-cohere-muted uppercase font-medium flex-shrink-0">Selected:</span>
+                              <span>{rec.selection_rationale}</span>
+                            </div>
+                          )}
+                          {rec.rejected_alternatives && (
+                            <div className="text-cohere-muted flex items-start space-x-1.5">
+                              <span className="uppercase font-medium flex-shrink-0">Rejected Alts:</span>
+                              <span className="text-cohere-muted italic">{rec.rejected_alternatives}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Action Controls Bar */}
+                      {isPending && (
+                        <div className="flex items-center justify-end space-x-2 pt-2 border-t border-cohere-border font-mono text-xs">
+                          <button
+                            onClick={() => handleDecision(rec.recommendation_id, "APPROVE")}
+                            className="px-3.5 py-1.5 rounded-pill bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition-colors flex items-center space-x-1.5"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Approve Execution</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setModifyingRec(rec);
+                              setModifiedQty(rec.quantity_bottles);
+                            }}
+                            className="px-3.5 py-1.5 rounded-pill bg-cohere-surface border border-cohere-border text-white text-xs hover:border-cohere-muted font-mono transition-colors flex items-center space-x-1.5"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Modify Qty</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setRejectingRec(rec);
+                              setRejectionNote("");
+                            }}
+                            className="px-3.5 py-1.5 rounded-pill bg-cohere-surface border border-rose-500/30 text-rose-400 text-xs hover:border-rose-400 font-mono transition-colors flex items-center space-x-1.5"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Reject with Note</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: AI COPILOT CHAT & TOOL GROUNDING (5 COLS) */}
+        <div className="lg:col-span-5 space-y-3">
+          <div className="bg-cohere-card border border-cohere-border rounded-sm p-5 flex flex-col h-[700px]">
+            {/* Chat Header */}
+            <div className="border-b border-cohere-border pb-3 flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-7 h-7 rounded-pill bg-cohere-surface border border-cohere-border flex items-center justify-center text-cohere-actionBlue">
+                  <Bot className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono">
+                    Control Tower Copilot
+                  </div>
+                  <div className="text-[10px] text-cohere-muted">Grounded in Registered Tools</div>
+                </div>
+              </div>
+              <span className="font-mono text-[10px] text-cohere-muted border border-cohere-border px-2 py-0.5 rounded-pill">
+                [{operatingMode}]
+              </span>
+            </div>
+
+            {/* Quick Prompt Suggestion Chips */}
+            <div className="py-2.5 flex flex-wrap gap-1.5 border-b border-cohere-border">
+              {[
+                "Diagnose PR-DP velocity spike at Depot-West-01",
+                "What surplus donors have >21d cover for PR-DP?",
+                "Explain why co-packers cannot solve passionfruit highway outage",
+                "Show non-overlapping breakdown of ₹46.08 Cr loss",
+              ].map((chip) => (
+                <button
+                  key={chip}
+                  onClick={() => handleSendMessage(chip)}
+                  className="text-[11px] px-3 py-1.5 rounded-pill bg-cohere-panel border border-cohere-border hover:border-cohere-actionBlue text-neutral-300 hover:text-white transition-colors text-left"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+
+            {/* Chat Message History */}
+            <div className="flex-1 overflow-y-auto py-3 space-y-3 pr-1 text-xs">
+              {messages.map((m, idx) => {
+                const isUser = m.sender === "user";
+                return (
+                  <div
+                    key={idx}
+                    className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}
+                  >
+                    <div
+                      className={`max-w-[88%] p-3.5 rounded-md leading-relaxed ${
+                        isUser
+                          ? "bg-cohere-surface border border-cohere-border text-white font-normal"
+                          : "bg-cohere-panel border border-cohere-border text-neutral-200 font-mono text-[11.5px]"
+                      }`}
+                    >
+                      <div className="whitespace-pre-wrap">{m.text}</div>
+                    </div>
+                    <span className="text-[10px] font-mono text-cohere-muted mt-1 px-1">
+                      {isUser ? "You (Planner)" : `RIOT RADAR Agent [${m.mode || operatingMode}]`}
+                    </span>
+                  </div>
+                );
+              })}
+              {chatLoading && (
+                <div className="p-3 rounded-sm bg-cohere-panel border border-cohere-border text-xs font-mono text-cohere-actionBlue animate-pulse flex items-center space-x-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Executing registered tool telemetry...</span>
+                </div>
+              )}
+              {chatError && lastFailedMessage && (
+                <div className="p-3 rounded-sm bg-rose-950/40 border border-rose-500/30 text-xs font-mono flex items-center justify-between">
+                  <span className="text-rose-400">Error: {chatError}</span>
+                  <button
+                    onClick={() => handleSendMessage(lastFailedMessage)}
+                    className="px-3 py-1 rounded-pill bg-rose-500 text-white font-medium text-xs hover:bg-rose-600 transition-colors"
+                  >
+                    Retry Question
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Chat Input Bar */}
+            <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(inputMessage); }} className="pt-3 border-t border-cohere-border flex space-x-2">
+              <input
+                type="text"
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage(inputMessage);
+                  }
+                }}
+                placeholder="Ask about allocation gaps, stock, or rebalancing (Press Enter)..."
+                className="flex-1 bg-cohere-panel border border-cohere-border rounded-pill px-4 py-2.5 text-xs text-white placeholder:text-cohere-muted focus:outline-none focus:border-cohere-actionBlue font-mono min-w-0"
+              />
+              <button
+                type="submit"
+                disabled={chatLoading || !inputMessage.trim()}
+                className="px-4 py-2.5 rounded-pill bg-white text-black font-semibold hover:bg-neutral-200 disabled:opacity-40 transition-colors flex items-center justify-center flex-shrink-0"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      {/* MODIFY QUANTITY MODAL */}
+      {modifyingRec && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <div className="bg-cohere-card border border-cohere-border rounded-md max-w-sm w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-cohere-border pb-3">
+              <span className="font-mono font-medium text-xs text-white uppercase tracking-wider">
+                MODIFY QUANTITY [{modifyingRec.recommendation_id}]
+              </span>
+              <button onClick={() => setModifyingRec(null)} className="text-cohere-muted hover:text-white text-sm font-bold">✕</button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="text-cohere-muted">
+                Original Quantity: <b className="text-white font-mono tabular-nums">{modifyingRec.quantity_bottles.toLocaleString()} btls</b>
+              </div>
+              <div>
+                <label className="block text-[10px] font-mono text-cohere-muted uppercase mb-1">New Transfer Quantity:</label>
+                <input
+                  type="number"
+                  value={modifiedQty}
+                  onChange={(e) => setModifiedQty(parseInt(e.target.value) || 0)}
+                  className="w-full bg-cohere-panel border border-cohere-border rounded-sm px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-cohere-actionBlue tabular-nums"
+                />
+              </div>
+              <div className="text-[11px] text-cohere-muted">
+                New Transfer Cost: <span className="font-mono text-white">₹{Math.round(modifiedQty * 1.5).toLocaleString()}</span> (@ ₹1.50/btl)
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-3 border-t border-cohere-border font-mono text-xs">
+              <button
+                onClick={() => setModifyingRec(null)}
+                className="px-3 py-1.5 rounded-pill bg-cohere-surface border border-cohere-border text-neutral-300 hover:text-white text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  handleDecision(modifyingRec.recommendation_id, "MODIFY", modifiedQty);
+                  setModifyingRec(null);
+                }}
+                className="px-3.5 py-1.5 rounded-pill bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition-colors"
+              >
+                Confirm Modification
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REJECT WITH NOTE MODAL */}
+      {rejectingRec && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <div className="bg-cohere-card border border-cohere-border rounded-md max-w-sm w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-cohere-border pb-3">
+              <span className="font-mono font-medium text-xs text-rose-400 uppercase tracking-wider">
+                REJECT TICKET [{rejectingRec.recommendation_id}]
+              </span>
+              <button onClick={() => setRejectingRec(null)} className="text-cohere-muted hover:text-white text-sm font-bold">✕</button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="text-cohere-muted">
+                Action: <b className="text-white">Move {rejectingRec.quantity_bottles.toLocaleString()} btls from {rejectingRec.origin_depot_id}</b>
+              </div>
+              <div>
+                <label className="block text-[10px] font-mono text-cohere-muted uppercase mb-1">Reason for Rejection:</label>
+                <textarea
+                  rows={3}
+                  value={rejectionNote}
+                  onChange={(e) => setRejectionNote(e.target.value)}
+                  placeholder="e.g., Regional truck strike, local festival surge reserved, or manual depot override."
+                  className="w-full bg-cohere-panel border border-cohere-border rounded-sm p-3 text-xs text-white placeholder:text-cohere-muted focus:outline-none focus:border-cohere-actionBlue"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-3 border-t border-cohere-border font-mono text-xs">
+              <button
+                onClick={() => setRejectingRec(null)}
+                className="px-3 py-1.5 rounded-pill bg-cohere-surface border border-cohere-border text-neutral-300 hover:text-white text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  handleDecision(rejectingRec.recommendation_id, "REJECT", undefined, rejectionNote);
+                  setRejectingRec(null);
+                }}
+                className="px-3.5 py-1.5 rounded-pill bg-rose-500 text-white font-semibold text-xs hover:bg-rose-600 transition-colors"
+              >
+                Confirm Rejection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

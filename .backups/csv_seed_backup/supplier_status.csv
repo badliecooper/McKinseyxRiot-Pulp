@@ -1,0 +1,6 @@
+supplier_id,material_name,origin_location,transit_mode,standard_lead_time_days,active_disruption_flag,disruption_type,effective_delay_days,notes
+SUP-PF-01,Passionfruit Pulp,Hill-Region Cooperative Route,ROAD,3,True,HIGHWAY_CLOSURE,21,NH closed for 21 days in May due to landslides. Sole access road. Starting plant cover 14 days vs 21d closure. 180d cold-storage shelf life. 28d recommended pre-summer buffer. Emergency air freight reference at 5.0x cost (₹3.20 Cr).
+SUP-DF-01,Imported Dragonfruit Pulp,Vietnam Maritime Corridor,SEA,49,False,QUARTERLY_IMPORT_CYCLE,0,40% imported dragonfruit pulp for PR-DB. 49-56 days lead time (6-8 weeks quarterly cycle). Rigid forward container booking required.
+SUP-MP-01,Mango-Peach Blend,Domestic Multi-Supplier,ROAD,4,False,NONE,0,Healthy domestic supply across western agricultural belt. 38% summer volume share.
+SUP-GV-01,Guava Pulp,Domestic Multi-Supplier,ROAD,3,False,NONE,0,Stable domestic supply across cooperative clusters. 20% summer volume share.
+COPACK-01,Co-Packer Bottling Facility,Regional Bottling Partner,ROAD,14,False,NONE,0,Co-packer provides bottling line capacity up to +10% volume at +25% cost premium with 14d advance notice; cannot solve raw pulp shortage.

@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #0d0e12;
+    color: #f5f6fa;
+    @apply antialiased font-sans;
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background-color: #1863dc;
+    color: #ffffff;
+  }
+
+  /* Force tabular numerals for financial and operational metrics */
+  table, th, td, .tabular-nums, [data-tabular="true"] {
+    font-variant-numeric: tabular-nums !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  /* Clean headings */
+  h1, h2, h3, h4 {
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer components {
+  /* Cohere Button System from DESIGN.md */
+  .button-primary {
+    @apply inline-flex items-center justify-center space-x-1.5 px-4 py-1.5 rounded-pill bg-white text-cohere-black font-semibold text-xs tracking-tight hover:bg-cohere-stone active:scale-[0.98] transition-all shadow-card-flat;
+  }
+
+  .button-primary-dark {
+    @apply inline-flex items-center justify-center space-x-1.5 px-4 py-1.5 rounded-pill bg-cohere-surface border border-cohere-border text-cohere-textPrimary font-semibold text-xs hover:border-cohere-borderLight active:scale-[0.98] transition-all;
+  }
+
+  .button-pill-outline {
+    @apply inline-flex items-center justify-center space-x-1 px-3 py-1 rounded-pill bg-transparent border border-cohere-border text-cohere-textSecondary hover:text-white hover:border-cohere-muted font-medium text-xs transition-colors;
+  }
+
+  .button-pill-active {
+    @apply inline-flex items-center justify-center space-x-1 px-3 py-1 rounded-pill bg-cohere-surface border border-cohere-borderLight text-white font-semibold text-xs;
+  }
+
+  /* Institutional Badge Styles (Anti-Slop & Cohere Controlled Voice) */
+  .badge-critical {
+    @apply bg-scm-critical/15 text-scm-critical border border-scm-critical/30 font-semibold px-2 py-0.5 rounded text-[10.5px] tracking-wide uppercase font-mono;
+  }
+
+  .badge-warn {
+    @apply bg-scm-warning/15 text-scm-warning border border-scm-warning/30 font-semibold px-2 py-0.5 rounded text-[10.5px] tracking-wide uppercase font-mono;
+  }
+
+  .badge-ok {
+    @apply bg-scm-healthy/15 text-scm-healthy border border-scm-healthy/30 font-semibold px-2 py-0.5 rounded text-[10.5px] tracking-wide uppercase font-mono;
+  }
+
+  .badge-neutral {
+    @apply bg-cohere-surface text-cohere-textSecondary border border-cohere-border font-medium px-2 py-0.5 rounded text-[10.5px] tracking-wide uppercase font-mono;
+  }
+
+  .badge-gold {
+    @apply bg-cohere-actionBlue/15 text-cohere-actionBlue border border-cohere-actionBlue/30 font-medium px-2 py-0.5 rounded text-[10.5px] tracking-wide uppercase font-mono;
+  }
+
+  /* Cohere Enterprise Cards (Flat, 1px Border Separation) */
+  .radar-card-base {
+    @apply bg-cohere-card border border-cohere-border rounded-md shadow-card-flat transition-all duration-150;
+  }
+
+  .radar-card-interactive {
+    @apply bg-cohere-card border border-cohere-border hover:border-cohere-borderLight rounded-md shadow-card-flat transition-all duration-150;
+  }
+
+  .agent-console-card {
+    @apply bg-cohere-panel border border-cohere-border rounded-md p-4 space-y-3;
+  }
+}
+
+/* Clean Minimal Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #0d0e12;
+}
+::-webkit-scrollbar-thumb {
+  background: #272837;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3c3e53;
+}

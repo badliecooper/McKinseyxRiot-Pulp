@@ -1,0 +1,265 @@
+"""Demand Intelligence & Censored-Demand Correction Service for RIOT RADAR.
+
+Maintains distinct time series for:
+1. Observed Sales
+2. Censored Adjustment (Latent Demand Gap)
+3. Corrected Demand (True Latent Demand)
+4. Forecast Demand
+
+Computes WAPE, Forecast Bias, Demand Uplift %, and Estimated Fill Rate %
+with strict protection against zero-division errors.
+"""
+
+from typing import Dict, List, Optional, Tuple, Any
+import numpy as np
+import pandas as pd
+
+from config.business_rules import (
+    FRESHNESS_LAGS,
+    HISTORICAL_FORECAST_ERROR_WAPE_PCT,
+)
+from services.csv_store import load_csv
+
+
+def calculate_demand_uplift(observed: float, corrected: float) -> Optional[float]:
+    """Calculate Demand Uplift % = (Corrected - Observed) / Observed * 100.
+    
+    Returns None if observed <= 0 to prevent infinity or division-by-zero errors.
+    """
+    if observed is None or observed <= 0:
+        return None
+    if corrected is None:
+        return 0.0
+    return ((corrected - observed) / observed) * 100.0
+
+
+def calculate_service_level_fill_rate(
+    fulfilled_demand: float,
+    total_corrected_demand: float,
+) -> Optional[float]:
+    """Calculate Service Level (Fill Rate) = Fulfilled / Total Corrected * 100.
+    
+    Returns None if total_corrected_demand <= 0.
+    """
+    if total_corrected_demand is None or total_corrected_demand <= 0:
+        return None
+    if fulfilled_demand is None:
+        return 0.0
+    ratio = min(1.0, max(0.0, fulfilled_demand / total_corrected_demand))
+    return ratio * 100.0
+
+
+def calculate_wape(
+    forecast: np.ndarray | List[float],
+    actual: np.ndarray | List[float],
+) -> Optional[float]:
+    """Calculate Weighted Absolute Percentage Error (WAPE).
+    
+    WAPE = sum(|Forecast - Actual|) / sum(Actual) * 100.
+    Returns None if sum(Actual) == 0.
+    """
+    f_arr = np.asarray(forecast, dtype=float)
+    a_arr = np.asarray(actual, dtype=float)
+    
+    total_actual = np.sum(a_arr)
+    if total_actual <= 0:
+        return None
+    
+    total_abs_err = np.sum(np.abs(f_arr - a_arr))
+    return float((total_abs_err / total_actual) * 100.0)
+
+
+def calculate_forecast_bias(
+    forecast: np.ndarray | List[float],
+    actual: np.ndarray | List[float],
+) -> Optional[float]:
+    """Calculate Forecast Bias %.
+    
+    Forecast Bias = sum(Forecast - Actual) / sum(Actual) * 100.
+    Positive = Overforecasting, Negative = Underforecasting.
+    Returns None if sum(Actual) == 0.
+    """
+    f_arr = np.asarray(forecast, dtype=float)
+    a_arr = np.asarray(actual, dtype=float)
+    
+    total_actual = np.sum(a_arr)
+    if total_actual <= 0:
+        return None
+    
+    total_diff = np.sum(f_arr - a_arr)
+    return float((total_diff / total_actual) * 100.0)
+
+
+class DemandService:
+    """Service providing demand sensing, stockout censoring correction, and forecast evaluations."""
+
+    def __init__(self):
+        pass
+
+    def get_demand_history(
+        self,
+        sku_id: Optional[str] = None,
+        depot_id: Optional[str] = None,
+        days: int = 30,
+    ) -> pd.DataFrame:
+        """Fetch demand history records with type casting."""
+        df = load_csv("demand_history")
+        if df.empty:
+            return df
+            
+        df["observed_sales"] = pd.to_numeric(df["observed_sales"], errors="coerce").fillna(0)
+        df["censored_adjustment"] = pd.to_numeric(df["censored_adjustment"], errors="coerce").fillna(0)
+        df["corrected_demand"] = pd.to_numeric(df["corrected_demand"], errors="coerce").fillna(0)
+        df["freshness_lag_days"] = pd.to_numeric(df["freshness_lag_days"], errors="coerce").fillna(7)
+        df["is_stockout_flagged"] = df["is_stockout_flagged"].astype(str).str.lower().isin(["true", "1"])
+        
+        if sku_id:
+            df = df[df["sku_id"] == sku_id]
+        if depot_id:
+            df = df[df["depot_id"] == depot_id]
+            
+        # Sort by date
+        df = df.sort_values("date")
+        if days and len(df) > 0:
+            latest_date = df["date"].max()
+            start_date = (pd.to_datetime(latest_date) - pd.Timedelta(days=days)).strftime("%Y-%m-%d")
+            df = df[df["date"] >= start_date]
+            
+        return df
+
+    def detect_and_correct_censored_demand(
+        self,
+        sku_id: str,
+        depot_id: str,
+        lookback_days: int = 14,
+    ) -> Dict[str, Any]:
+        """Detect censored demand and compute true latent demand estimate.
+        
+        Uses recent unconstrained daily velocity and active stockout reports.
+        """
+        df = self.get_demand_history(sku_id, depot_id, days=lookback_days)
+        stockouts_df = load_csv("stockout_reports")
+        
+        has_manual_report = False
+        reported_unmet = 0.0
+        if not stockouts_df.empty:
+            match = stockouts_df[
+                (stockouts_df["sku_id"] == sku_id) & (stockouts_df["depot_id"] == depot_id)
+            ]
+            if not match.empty:
+                has_manual_report = True
+                reported_unmet = pd.to_numeric(match["estimated_unmet_bottles"], errors="coerce").sum()
+
+        if df.empty:
+            return {
+                "sku_id": sku_id,
+                "depot_id": depot_id,
+                "observed_demand_sum": 0.0,
+                "censored_adjustment_sum": 0.0,
+                "corrected_demand_sum": 0.0,
+                "demand_uplift_pct": None,
+                "is_censored": False,
+                "confidence": "LOW",
+                "method": "NO_DATA",
+            }
+
+        unconstrained_days = df[~df["is_stockout_flagged"]]
+        if len(unconstrained_days) >= 3:
+            unconstrained_velocity = unconstrained_days["observed_sales"].mean()
+        else:
+            unconstrained_velocity = df["corrected_demand"].mean()
+
+        total_observed = float(df["observed_sales"].sum())
+        total_corrected = float(df["corrected_demand"].sum())
+        total_adjustment = total_corrected - total_observed
+
+        is_censored = bool((df["is_stockout_flagged"].any()) or has_manual_report or (total_adjustment > 0))
+        uplift_pct = calculate_demand_uplift(total_observed, total_corrected)
+
+        return {
+            "sku_id": sku_id,
+            "depot_id": depot_id,
+            "lookback_days": lookback_days,
+            "observed_demand_sum": total_observed,
+            "censored_adjustment_sum": total_adjustment,
+            "corrected_demand_sum": total_corrected,
+            "demand_uplift_pct": uplift_pct,
+            "is_censored": is_censored,
+            "unconstrained_daily_velocity": float(unconstrained_velocity),
+            "manual_reported_unmet_bottles": float(reported_unmet),
+            "confidence": "HIGH" if len(df) >= 7 else "MEDIUM",
+            "method": "UNCONSTRAINED_VELOCITY_PLUS_DARKSTORE_LOGS",
+            "is_synthetic": True,
+        }
+
+    def evaluate_forecast_vintage(
+        self,
+        vintage_id: str = "VINTAGE-2026-W18",
+    ) -> Dict[str, Any]:
+        """Evaluate saved forecast vintage against:
+        1. Observed Sales
+        2. Corrected Latent Demand
+        3. Synthetic Ground Truth (demo-only)
+        
+        Compares RIOT RADAR sensing against the Naive Last-Week-Actual Benchmark.
+        """
+        f_df = load_csv("forecast_snapshots")
+        d_df = self.get_demand_history(days=7)
+        
+        if f_df.empty or d_df.empty:
+            return {
+                "vintage_id": vintage_id,
+                "wape_observed": None,
+                "wape_corrected": None,
+                "wape_naive_benchmark": None,
+                "bias_pct": None,
+                "status": "NO_EVALUATION_DATA",
+            }
+            
+        f_sub = f_df[f_df["vintage_id"] == vintage_id].copy()
+        if f_sub.empty:
+            f_sub = f_df.copy()
+            
+        f_sub["forecast_demand"] = pd.to_numeric(f_sub["forecast_demand"], errors="coerce").fillna(0)
+        f_sub["naive_baseline_demand"] = pd.to_numeric(f_sub["naive_baseline_demand"], errors="coerce").fillna(0)
+        
+        # Aggregate demand by SKU-Depot over latest 7 days
+        grouped_d = d_df.groupby(["sku_id", "depot_id"]).agg({
+            "observed_sales": "sum",
+            "corrected_demand": "sum",
+        }).reset_index()
+        
+        merged = pd.merge(f_sub, grouped_d, on=["sku_id", "depot_id"], how="inner")
+        
+        if merged.empty:
+            return {
+                "vintage_id": vintage_id,
+                "wape_observed": None,
+                "wape_corrected": None,
+                "wape_naive_benchmark": None,
+                "bias_pct": None,
+                "status": "NO_OVERLAPPING_PERIODS",
+            }
+            
+        # Scale daily forecast to 7-day period for apples-to-apples comparison
+        forecast_7d = merged["forecast_demand"].to_numpy() * 7.0
+        naive_7d = merged["naive_baseline_demand"].to_numpy() * 7.0
+        observed_7d = merged["observed_sales"].to_numpy()
+        corrected_7d = merged["corrected_demand"].to_numpy()
+        
+        wape_obs = calculate_wape(forecast_7d, observed_7d)
+        wape_corr = calculate_wape(forecast_7d, corrected_7d)
+        wape_naive = calculate_wape(naive_7d, corrected_7d)
+        bias_corr = calculate_forecast_bias(forecast_7d, corrected_7d)
+        
+        return {
+            "vintage_id": vintage_id,
+            "sku_depots_evaluated": len(merged),
+            "riot_radar_wape_corrected_pct": round(wape_corr, 1) if wape_corr is not None else None,
+            "riot_radar_wape_observed_pct": round(wape_obs, 1) if wape_obs is not None else None,
+            "naive_benchmark_wape_pct": round(wape_naive, 1) if wape_naive is not None else None,
+            "forecast_bias_pct": round(bias_corr, 1) if bias_corr is not None else None,
+            "historical_baseline_wape_pct": HISTORICAL_FORECAST_ERROR_WAPE_PCT,
+            "accuracy_gain_pct": round(wape_naive - wape_corr, 1) if (wape_naive is not None and wape_corr is not None) else None,
+            "is_synthetic_evaluation": True,
+        }

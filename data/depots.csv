@@ -1,0 +1,10 @@
+depot_id,name,region,lead_time_days
+Depot-North-01,Delhi NCR Depot,North,2
+Depot-North-02,Lucknow Depot,North,3
+Depot-West-01,Mumbai Depot,West,2
+Depot-West-02,Ahmedabad Depot,West,3
+Depot-South-01,Bengaluru Depot,South,2
+Depot-South-02,Chennai Depot,South,3
+Depot-East-01,Kolkata Depot,East,3
+Depot-East-02,Guwahati Depot,East,4
+Depot-Central-01,Indore Depot,Central,3

@@ -1,0 +1,184 @@
+"""Depot Explorer API endpoints for RIOT RADAR."""
+
+import datetime
+from typing import Dict, List, Optional, Any
+from fastapi import APIRouter, HTTPException, Query
+import pandas as pd
+import numpy as np
+
+import tools
+from config.business_rules import SKUS, DEPOTS
+from services.csv_store import append_csv_row, load_csv
+from api.schemas import StockoutReportCreate
+
+router = APIRouter(prefix="", tags=["Depot Explorer"])
+
+
+@router.get("/depots")
+def get_depots():
+    """Retrieve list of all 9 regional depots."""
+    return DEPOTS
+
+
+@router.get("/skus")
+def get_skus():
+    """Retrieve list of all 5 finished juice SKUs."""
+    return [
+        {
+            "sku_id": s.sku_id,
+            "flavour": s.flavour,
+            "summer_share_pct": s.summer_share_pct,
+            "primary_planning_concern": s.primary_planning_concern,
+            "pulp_type": s.pulp_type,
+            "pulp_kg_per_bottle": s.pulp_kg_per_bottle,
+        }
+        for s in SKUS.values()
+    ]
+
+
+@router.get("/sku-depot")
+def get_sku_depot_grid(
+    sku_id: Optional[str] = Query(None),
+    depot_id: Optional[str] = Query(None),
+):
+    """Retrieve 45 SKU–Depot operational records with optional filters."""
+    grid = tools.get_sku_depot_grid()
+    if sku_id:
+        grid = grid[grid["sku_id"] == sku_id]
+    if depot_id:
+        grid = grid[grid["depot_id"] == depot_id]
+
+    # Convert DataFrame to records, replacing NaN with None
+    records = grid.replace({np.nan: None}).to_dict(orient="records")
+    return {"data": records, "total": len(records)}
+
+
+@router.get("/sku-depot/detail")
+def get_sku_depot_detail(
+    sku_id: str = Query(...),
+    depot_id: str = Query(...),
+):
+    """Retrieve detailed operational indicators for a single SKU-Depot cell."""
+    grid = tools.get_sku_depot_grid()
+    match = grid[(grid["sku_id"] == sku_id) & (grid["depot_id"] == depot_id)]
+    if match.empty:
+        raise HTTPException(status_code=404, detail=f"SKU-Depot {sku_id} @ {depot_id} not found.")
+
+    record = match.iloc[0].to_dict()
+    clean_record = {k: (None if pd.isna(v) else v) for k, v in record.items()}
+    return clean_record
+
+
+@router.get("/sku-depot/demand-series")
+def get_demand_series(
+    sku_id: str = Query(...),
+    depot_id: str = Query(...),
+    days: int = Query(30, ge=7, le=90),
+):
+    """Retrieve daily demand sensing time series (observed sales, corrected demand, censoring flag)."""
+    df = tools._demand_svc.get_demand_history(sku_id, depot_id, days=days)
+    if df.empty:
+        return {"series": []}
+
+    records = []
+    daily_forecast = 0.0
+    grid = tools.get_sku_depot_grid()
+    g_match = grid[(grid["sku_id"] == sku_id) & (grid["depot_id"] == depot_id)]
+    if not g_match.empty:
+        daily_forecast = float(g_match.iloc[0]["forecast_demand"])
+
+    for _, r in df.iterrows():
+        records.append({
+            "date": str(r["date"]),
+            "observed_sales": round(float(r["observed_sales"])),
+            "corrected_demand": round(float(r["corrected_demand"])),
+            "censored_adjustment": round(float(r["censored_adjustment"])),
+            "forecast_demand": round(daily_forecast),
+            "is_stockout_flagged": bool(r["is_stockout_flagged"]),
+            "channel": str(r.get("channel", "ALL")),
+        })
+
+    return {
+        "sku_id": sku_id,
+        "depot_id": depot_id,
+        "series": records,
+        "total_days": len(records),
+    }
+
+
+@router.get("/sku-depot/inventory-projection")
+def get_inventory_projection(
+    sku_id: str = Query(...),
+    depot_id: str = Query(...),
+    horizon_days: int = Query(21, ge=7, le=60),
+):
+    """Retrieve forward daily usable stock depletion sawtooth trajectory with dated receipts."""
+    grid = tools.get_sku_depot_grid()
+    g_match = grid[(grid["sku_id"] == sku_id) & (grid["depot_id"] == depot_id)]
+    if g_match.empty:
+        raise HTTPException(status_code=404, detail="SKU-Depot cell not found.")
+
+    daily_forecast = float(g_match.iloc[0]["forecast_demand"])
+    timeline_df = tools._inv_svc.project_inventory_depletion_timeline(
+        sku_id, depot_id, daily_forecast_demand=daily_forecast, horizon_days=horizon_days
+    )
+
+    records = []
+    for _, r in timeline_df.iterrows():
+        records.append({
+            "date": str(r["date"]),
+            "opening_stock": round(float(r["opening_stock"])),
+            "inbound_receipt_qty": round(float(r["inbound_receipt_qty"])),
+            "daily_demand_burn": round(float(r["daily_demand_burn"])),
+            "closing_stock": round(float(r["closing_stock"])),
+            "is_stocked_out": bool(r["is_stocked_out"]),
+        })
+
+    return {
+        "sku_id": sku_id,
+        "depot_id": depot_id,
+        "target_stock": round(float(g_match.iloc[0]["target_stock"])),
+        "days_of_cover": round(float(g_match.iloc[0]["days_of_cover"]), 1) if pd.notna(g_match.iloc[0]["days_of_cover"]) else None,
+        "projected_stockout_date": str(g_match.iloc[0]["projected_stockout_date"]),
+        "shelf_life_status": str(g_match.iloc[0]["remaining_shelf_life_days"]) + "d remaining",
+        "timeline": records,
+    }
+
+
+@router.get("/transfers")
+def get_transfers(
+    sku_id: Optional[str] = Query(None),
+    depot_id: Optional[str] = Query(None),
+):
+    """Retrieve feasible inter-depot transfer proposals for a given SKU or depot."""
+    proposals = tools.plan_rebalancing(sku_id=sku_id)
+    if depot_id:
+        proposals = [p for p in proposals if p["destination_depot_id"] == depot_id or p["origin_depot_id"] == depot_id]
+    return {"proposals": proposals, "count": len(proposals)}
+
+
+@router.post("/stockout-reports")
+def post_stockout_report(report: StockoutReportCreate):
+    """Log a manual stock-out incident report from field teams / dark stores."""
+    rep_id = f"REP-{datetime.datetime.now().strftime('%m%d%H%M%S')}"
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    row = {
+        "report_id": rep_id,
+        "reported_at": now_str,
+        "depot_id": report.depot_id,
+        "sku_id": report.sku_id,
+        "channel": report.channel,
+        "reported_by": report.reported_by,
+        "evidence_source": report.evidence_source,
+        "estimated_unmet_bottles": report.estimated_unmet_bottles,
+        "notes": report.notes,
+    }
+    append_csv_row("stockout_reports", row)
+
+    return {
+        "status": "SUCCESS",
+        "success": True,
+        "report_id": rep_id,
+        "message": f"Stockout report {rep_id} logged to stockout_reports.csv.",
+    }

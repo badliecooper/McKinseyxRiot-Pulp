@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #fcfbf9;
+    color: #17171c;
+    @apply antialiased font-sans;
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background-color: #1863dc;
+    color: #ffffff;
+  }
+
+  /* Force tabular numerals for financial and operational metrics */
+  table, th, td, .tabular-nums, [data-tabular="true"] {
+    font-variant-numeric: tabular-nums !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  /* Cohere clean display headlines */
+  h1, h2, h3, h4 {
+    letter-spacing: -0.02em;
+    color: #17171c;
+    font-family: 'Space Grotesk', 'Inter', -apple-system, sans-serif;
+  }
+}
+
+@layer utilities {
+  .text-cohere-error {
+    color: #b30000;
+  }
+  .bg-cohere-error {
+    background-color: #b30000;
+  }
+  .border-cohere-error {
+    border-color: #b30000;
+  }
+}
+
+@layer components {
+  /* Announcement bar from DESIGN.md */
+  .announcement-bar {
+    @apply w-full bg-cohere-black text-white font-mono text-[11px] h-9 px-4 flex items-center justify-between tracking-wide uppercase select-none;
+  }
+
+  /* Cohere Button System from DESIGN.md */
+  .button-primary {
+    @apply inline-flex items-center justify-center space-x-1.5 px-4 py-1.5 rounded-pill bg-cohere-primary text-white font-medium text-xs tracking-tight hover:bg-cohere-black active:scale-[0.98] transition-all shadow-card-flat;
+  }
+
+  .button-primary-white {
+    @apply inline-flex items-center justify-center space-x-1.5 px-4 py-1.5 rounded-pill bg-white text-cohere-primary font-semibold text-xs tracking-tight hover:bg-cohere-soft-stone active:scale-[0.98] transition-all shadow-card-flat;
+  }
+
+  .button-secondary {
+    @apply inline-flex items-center space-x-1 text-cohere-ink font-medium text-xs underline underline-offset-4 hover:text-cohere-action-blue transition-colors;
+  }
+
+  .button-pill-outline {
+    @apply inline-flex items-center justify-center space-x-1 px-3 py-1 rounded-pill bg-transparent border border-cohere-hairline text-cohere-primary hover:bg-cohere-soft-stone font-medium text-xs transition-colors;
+  }
+
+  .button-pill-active {
+    @apply inline-flex items-center justify-center space-x-1 px-3 py-1 rounded-pill bg-cohere-primary text-white font-semibold text-xs shadow-card-flat;
+  }
+
+  /* Cohere Badges & Taxonomy Chips - Clean Monochrome (Zero Color Highlights) */
+  .badge-critical {
+    @apply bg-transparent text-cohere-primary border border-cohere-hairline font-semibold px-2 py-0.5 rounded-xs text-[10px] tracking-wide uppercase font-mono;
+  }
+
+  .badge-warn {
+    @apply bg-transparent text-cohere-primary border border-cohere-hairline font-semibold px-2 py-0.5 rounded-xs text-[10px] tracking-wide uppercase font-mono;
+  }
+
+  .badge-ok {
+    @apply bg-transparent text-cohere-primary border border-cohere-hairline font-semibold px-2 py-0.5 rounded-xs text-[10px] tracking-wide uppercase font-mono;
+  }
+
+  .badge-neutral {
+    @apply bg-transparent text-cohere-slate border border-cohere-hairline font-medium px-2 py-0.5 rounded-xs text-[10px] tracking-wide uppercase font-mono;
+  }
+
+  .badge-gold {
+    @apply bg-transparent text-cohere-primary border border-cohere-hairline font-medium px-2 py-0.5 rounded-xs text-[10px] tracking-wide uppercase font-mono;
+  }
+
+  .badge-coral {
+    @apply bg-transparent text-cohere-primary border border-cohere-hairline font-medium px-2 py-0.5 rounded-xs text-[10px] tracking-wide uppercase font-mono;
+  }
+
+  .blog-filter-chip {
+    @apply inline-flex items-center px-3 py-1 rounded-sm border border-cohere-coral text-cohere-coral text-xs font-medium hover:bg-cohere-coral hover:text-white transition-colors;
+  }
+
+  .blog-filter-chip-active {
+    @apply inline-flex items-center px-3 py-1 rounded-sm bg-cohere-coral text-white text-xs font-medium shadow-card-flat;
+  }
+
+  /* Cohere Enterprise Cards & Bands from DESIGN.md */
+  .radar-card-base {
+    @apply bg-white border border-cohere-hairline rounded-sm shadow-card-flat transition-all duration-150;
+  }
+
+  .radar-card-interactive {
+    @apply bg-white border border-cohere-hairline hover:border-cohere-muted rounded-sm shadow-card-flat transition-all duration-150;
+  }
+
+  .agent-console-card {
+    @apply bg-cohere-primary text-white rounded-sm p-4 border border-cohere-primary shadow-card-flat;
+  }
+
+  .dark-feature-band {
+    @apply bg-cohere-deep-green text-white rounded-lg p-5 border border-cohere-deep-green shadow-card-flat;
+  }
+
+  .product-card {
+    @apply bg-cohere-soft-stone border border-cohere-hairline rounded-sm p-4;
+  }
+}
+
+/* Minimal Cohere Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #fcfbf9;
+}
+::-webkit-scrollbar-thumb {
+  background: #d9d9dd;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #93939f;
+}

@@ -1,0 +1,43 @@
+approval_id,recommendation_id,decision,decided_at,approver_id,approver_role,modified_quantity_bottles,notes
+APP-9D40E3FE,REC-1024-001,APPROVE,2026-10-24 18:49:30,Lead-Planner-CLI,Lead Supply Chain Planner,,Verified donor retains >=21d cover and batch shelf-life satisfies MT/QC gate.
+APP-638BC869,REC-1024-002,APPROVE,2026-10-24 18:49:49,Lead-Planner-CLI,Lead Supply Chain Planner,,Verified donor retains >=21d cover and batch shelf-life satisfies MT/QC gate.
+APP-4086B34F,REC-2026-0520-001,APPROVE,2026-10-24 18:54:22,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-8405ADBB,REC-2026-0520-002,APPROVE,2026-10-24 18:55:14,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-B67AF56B,REC-2026-0520-003,APPROVE,2026-10-24 18:56:08,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-524F286B,REC-1024-003,APPROVE,2026-10-24 18:56:17,Lead-Planner-CLI,Lead Supply Chain Planner,,Verified donor retains >=21d cover and batch shelf-life satisfies MT/QC gate.
+APP-04C11790,REC-1024-004,APPROVE,2026-10-24 18:57:27,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-5F7BA0AB,REC-1024-005,APPROVE,2026-10-24 18:57:38,Lead-Planner-CLI,Lead Supply Chain Planner,,Verified donor retains >=21d cover and batch shelf-life satisfies MT/QC gate.
+APP-0EAB18D2,REC-TEST-FIXTURE-001,APPROVE,2026-10-24 19:09:33,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-4A6ECDC3,REC-TEST-665738,APPROVE,2026-10-24 19:16:46,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-52D0CBDA,REC-TEST-8648CA,APPROVE,2026-10-24 19:31:55,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-E388300B,REC-TEST-26502C,APPROVE,2026-10-24 19:33:31,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-427F5824,REC-TEST-395A62,APPROVE,2026-10-24 19:34:08,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-4DCD0FE1,REC-TEST-3BDC4C,APPROVE,2026-10-24 19:36:01,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-ED90A63E,REC-TEST-4B4F16,APPROVE,2026-10-24 19:37:19,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-EA19C25B,REC-TEST-CE5FB5,APPROVE,2026-10-24 19:37:55,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-504767F7,REC-TEST-A6964F,APPROVE,2026-10-24 19:38:39,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-623CCE8A,REC-TEST-3F1BA9,APPROVE,2026-10-24 19:50:57,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-EB2878C3,REC-TEST-537CA5,APPROVE,2026-10-24 20:48:30,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-4A8C2FCD,REC-1024-006,APPROVE,2026-10-24 21:00:00,Executive-Planner-UI,Central S&OP Planner,,
+APP-FFE6D7C3,REC-1024-007,APPROVE,2026-10-24 21:00:01,Executive-Planner-UI,Central S&OP Planner,,
+APP-1A884710,REC-1024-008,APPROVE,2026-10-24 21:00:02,Executive-Planner-UI,Central S&OP Planner,,
+APP-C15AC05F,REC-1024-009,APPROVE,2026-10-24 21:00:02,Executive-Planner-UI,Central S&OP Planner,,
+APP-A1B17DBD,REC-TEST-070F2F,APPROVE,2026-10-24 23:36:48,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-18DAB2CE,REC-TEST-38AB73,APPROVE,2026-10-24 23:55:01,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-011CB60B,REC-TEST-02EB8C,APPROVE,2026-10-24 23:59:58,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-875DEA37,REC-TEST-8917B8,APPROVE,2026-10-25 01:16:32,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-A3C41627,REC-TEST-336D76,APPROVE,2026-10-25 01:39:32,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-B94CA995,REC-TEST-05EBC2,APPROVE,2026-10-25 01:44:58,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-69CD17E8,REC-TEST-E40B19,APPROVE,2026-10-25 01:58:21,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-58545A86,REC-TEST-C1ABFD,APPROVE,2026-10-25 02:27:04,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-BDCDD071,REC-TEST-BB8EA3,APPROVE,2026-10-25 03:07:44,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-B2AA5BAA,REC-TEST-20EA5E,APPROVE,2026-10-25 03:25:12,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-EAF70190,REC-TEST-DEBE40,APPROVE,2026-10-25 03:26:25,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-F655F5E2,REC-TEST-274A72,APPROVE,2026-10-25 04:22:32,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-27A7FD86,REC-TEST-422372,APPROVE,2026-10-25 04:26:20,Test-Planner-01,Central S&OP Planner,,Approved under test conditions
+APP-2C5C7804,REC-2026-0520-106,APPROVE,2026-10-25 04:52:14,Executive-Planner-UI,Central S&OP Planner,,
+APP-79933F27,REC-2026-0520-105,APPROVE,2026-10-25 04:52:15,Executive-Planner-UI,Central S&OP Planner,,
+APP-5AECAB63,REC-2026-0520-104,APPROVE,2026-10-25 04:52:16,Executive-Planner-UI,Central S&OP Planner,,
+APP-63D87A33,REC-2026-0520-103,APPROVE,2026-10-25 04:52:16,Executive-Planner-UI,Central S&OP Planner,,
+APP-4EBF988F,REC-2026-0520-102,APPROVE,2026-10-25 04:52:16,Executive-Planner-UI,Central S&OP Planner,,
+APP-90A36C82,REC-2026-0520-101,APPROVE,2026-10-25 04:52:17,Executive-Planner-UI,Central S&OP Planner,,

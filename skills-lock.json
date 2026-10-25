@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-prompt-engineering": {
+      "source": "agentailor/skills",
+      "sourceType": "github",
+      "skillPath": "agent-prompt-engineering/SKILL.md",
+      "computedHash": "7f614a712dcff4fd36f51b9a814c9a894b65ba6ab53030b35315db801c0fc025"
+    },
+    "agentic-eval": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/agentic-eval/SKILL.md",
+      "computedHash": "40771d7d389c1542e6cb995d75e516893466f01c3b66bc040b158ceb793d4bed"
+    },
+    "design-taste-frontend": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/taste-skill/SKILL.md",
+      "computedHash": "65049e1890f5fedf8f8e1144848f07bcda788e51c22bac78afbd073aeb486725"
+    },
+    "mcp-builder": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mcp-builder/SKILL.md",
+      "computedHash": "6498a736a8dc5c645047c8a875b8ea7417e2ad97146f005200e50d20a9337ada"
+    },
+    "openai-docs": {
+      "source": "openai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/.curated/openai-docs/SKILL.md",
+      "computedHash": "80d1836b9c7cdee24521c47e33a77cbf02b34783267f5a7e32c41557170fa6dd"
+    },
+    "prompt-engineer": {
+      "source": "davila7/claude-code-templates",
+      "sourceType": "github",
+      "skillPath": "cli-tool/components/skills/ai-research/prompt-engineer/SKILL.md",
+      "computedHash": "685304546def862c29251daadf8b80fe54e52fb0cbdb81d0912ca7d57093de26"
+    },
+    "skill-creator": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/skill-creator/SKILL.md",
+      "computedHash": "7e3c9cd74e9e2b4828527a857170e86310f2dab5ea8030a9043df2c7e6c88857"
+    },
+    "tool-design": {
+      "source": "agentailor/skills",
+      "sourceType": "github",
+      "skillPath": "tool-design/SKILL.md",
+      "computedHash": "be0cc48e04a1548abe2659532104eeffcb472bf1abf17e8a20e12cde12df39aa"
+    }
+  }
+}

@@ -1,0 +1,214 @@
+"""Scenario Replay & Upstream Supply Constraint Service for RIOT RADAR.
+
+Decouples and models:
+1. Bottling plant capacity vs Co-packer capacity (with +25% cost premium & 2-week notice)
+2. Raw pulp availability constraints (Passionfruit single-source vs Dragonfruit 40% imported)
+3. Transportation disruptions (May 3-week highway closure & ₹3.20 Cr emergency air freight)
+4. Finished-goods depot imbalance vs true upstream scarcity
+5. Deterministic pulp rationing based on contribution margin per kg of pulp
+"""
+
+from typing import Dict, List, Optional, Any
+import datetime
+import pandas as pd
+import numpy as np
+
+from config.business_rules import (
+    SKUS,
+    MONTHLY_CAPACITY_BOTTLES,
+    SUMMER_UTILIZATION_PCT,
+    COPACKER_MAX_VOLUME_PCT,
+    COPACKER_COST_PREMIUM_PCT,
+    COPACKER_LEAD_TIME_DAYS,
+    PASSIONFRUIT_HIGHWAY_CLOSURE_WEEKS,
+    PASSIONFRUIT_STARTING_PULP_COVER_DAYS,
+    EMERGENCY_AIR_FREIGHT_INR_CR,
+    CONTRIBUTION_MARGIN_PCT,
+    BOTTLE_PRICE_INR,
+)
+from services.csv_store import load_csv
+
+
+class ScenarioService:
+    """Service providing multi-constraint scenario modeling and deterministic rationing logic."""
+
+    def __init__(self):
+        pass
+
+    def evaluate_copacker_feasibility(
+        self,
+        requested_additional_bottles: float,
+        notice_days_available: int,
+        pulp_availability_flag: bool,
+    ) -> Dict[str, Any]:
+        """Evaluate co-packer activation feasibility.
+        
+        CRITICAL SCM LOGIC:
+        A co-packer CANNOT solve a raw pulp shortage.
+        Co-packer is feasible only if notice >= 14 days and raw materials are available.
+        """
+        max_copacker_capacity = MONTHLY_CAPACITY_BOTTLES * (COPACKER_MAX_VOLUME_PCT / 100.0)  # 2,500,000 btls/mo
+        is_notice_sufficient = notice_days_available >= COPACKER_LEAD_TIME_DAYS
+        is_volume_within_cap = requested_additional_bottles <= max_copacker_capacity
+
+        if not pulp_availability_flag:
+            return {
+                "is_feasible": False,
+                "rejection_reason": "INSUFFICIENT_RAW_PULP: Co-packer provides bottling line capacity only, not raw passionfruit pulp.",
+                "requested_bottles": requested_additional_bottles,
+                "copacker_capacity_cap": max_copacker_capacity,
+                "notice_days": notice_days_available,
+                "production_premium_pct": COPACKER_COST_PREMIUM_PCT,
+                "estimated_copacker_premium_inr": 0.0,
+            }
+
+        if not is_notice_sufficient:
+            return {
+                "is_feasible": False,
+                "rejection_reason": f"INSUFFICIENT_NOTICE: Co-packer requires 14 days advance booking; available notice is {notice_days_available} days.",
+                "requested_bottles": requested_additional_bottles,
+                "copacker_capacity_cap": max_copacker_capacity,
+                "notice_days": notice_days_available,
+                "production_premium_pct": COPACKER_COST_PREMIUM_PCT,
+                "estimated_copacker_premium_inr": 0.0,
+            }
+
+        allocable_bottles = min(requested_additional_bottles, max_copacker_capacity)
+        # Production cost baseline approx ₹18/btl (30% of ₹60 retail), premium +25% = ₹4.50/btl
+        premium_inr = allocable_bottles * (BOTTLE_PRICE_INR * 0.30 * (COPACKER_COST_PREMIUM_PCT / 100.0))
+
+        return {
+            "is_feasible": True,
+            "rejection_reason": None,
+            "requested_bottles": requested_additional_bottles,
+            "allocated_copacker_bottles": allocable_bottles,
+            "copacker_capacity_cap": max_copacker_capacity,
+            "notice_days": notice_days_available,
+            "production_premium_pct": COPACKER_COST_PREMIUM_PCT,
+            "estimated_copacker_premium_inr": round(premium_inr, 2),
+        }
+
+    def simulate_passionfruit_disruption(
+        self,
+        closure_weeks: int = PASSIONFRUIT_HIGHWAY_CLOSURE_WEEKS,
+        starting_cover_days: int = PASSIONFRUIT_STARTING_PULP_COVER_DAYS,
+        rationing_strategy: str = "CONTRIBUTION_OPTIMIZED",
+        air_freight_trigger: bool = False,
+    ) -> Dict[str, Any]:
+        """Simulate the May 3-week highway closure for passionfruit pulp.
+        
+        Calculates:
+        - Day-by-day pulp depletion
+        - Contribution per kg pulp for competing SKUs (PR-DP vs PR-PP)
+        - Historical ad-hoc rationing vs Deterministic contribution-optimized rationing
+        """
+        closure_days = closure_weeks * 7  # 21 days
+        
+        # Finished goods recipes
+        # PR-PP uses 0.070 kg passionfruit pulp per bottle
+        # PR-DP uses 0.035 kg passionfruit pulp per bottle (blended with dragonfruit)
+        pr_pp_kg_per_btl = SKUS["PR-PP"].pulp_kg_per_bottle
+        pr_dp_kg_per_btl = 0.035  # Half of 0.065 kg recipe is passionfruit pulp
+
+        unit_contribution = BOTTLE_PRICE_INR * (CONTRIBUTION_MARGIN_PCT / 100.0)  # ₹19.20 per bottle
+
+        # Contribution per kg pulp
+        pr_pp_contrib_per_kg = unit_contribution / pr_pp_kg_per_btl  # ₹19.20 / 0.070 = ₹274.29 / kg
+        pr_dp_contrib_per_kg = unit_contribution / pr_dp_kg_per_btl  # ₹19.20 / 0.035 = ₹548.57 / kg
+
+        # Baseline daily national demand
+        daily_pp_btls = (96_000_000 / 120.0) * (SKUS["PR-PP"].summer_share_pct / 100.0)  # 128,000 btls/day
+        daily_dp_btls = (96_000_000 / 120.0) * (SKUS["PR-DP"].summer_share_pct / 100.0)  # 96,000 btls/day
+
+        normal_daily_pulp_kg = (daily_pp_btls * pr_pp_kg_per_btl) + (daily_dp_btls * pr_dp_kg_per_btl)  # ~12,320 kg/day
+        starting_pulp_stock_kg = normal_daily_pulp_kg * starting_cover_days  # 14 days = ~172,480 kg
+
+        pulp_stock = starting_pulp_stock_kg
+        day_records = []
+        pulp_exhaustion_day = None
+
+        for day in range(1, closure_days + 1):
+            if rationing_strategy == "HISTORICAL_ADHOC":
+                # Historical ad-hoc cut both SKUs equally by 25%, causing severe high-margin PR-DP stockouts
+                effective_pp = daily_pp_btls * 0.75
+                effective_dp = daily_dp_btls * 0.75
+            elif rationing_strategy == "CONTRIBUTION_OPTIMIZED":
+                # Protect 100% of high-margin PR-DP (₹548.57/kg pulp & contractual MT/QC commitments)
+                # Ration PR-PP by -40% to GT
+                effective_dp = daily_dp_btls * 1.0
+                effective_pp = daily_pp_btls * 0.60
+            else:  # UNCONSTRAINED
+                effective_pp = daily_pp_btls
+                effective_dp = daily_dp_btls
+
+            daily_burn_kg = (effective_pp * pr_pp_kg_per_btl) + (effective_dp * pr_dp_kg_per_btl)
+
+            # Air freight contingency injection
+            air_freight_injected_kg = 0.0
+            if air_freight_trigger and day == 12:
+                # Emergency air freight injected 60,000 kg at ₹3.20 Cr
+                air_freight_injected_kg = 60000.0
+                pulp_stock += air_freight_injected_kg
+
+            pulp_stock -= daily_burn_kg
+            if pulp_stock <= 0 and pulp_exhaustion_day is None:
+                pulp_exhaustion_day = day
+
+            day_records.append({
+                "day": day,
+                "pulp_stock_kg": max(0.0, pulp_stock),
+                "daily_burn_kg": daily_burn_kg,
+                "is_depleted": pulp_stock <= 0,
+            })
+
+        total_shortage_kg = max(0.0, -pulp_stock) if not air_freight_trigger else 0.0
+
+        return {
+            "closure_weeks": closure_weeks,
+            "closure_days": closure_days,
+            "starting_cover_days": starting_cover_days,
+            "starting_pulp_stock_kg": round(starting_pulp_stock_kg),
+            "normal_daily_pulp_consumption_kg": round(normal_daily_pulp_kg),
+            "rationing_strategy": rationing_strategy,
+            "pulp_exhaustion_day": pulp_exhaustion_day if pulp_exhaustion_day else "NOT_EXHAUSTED",
+            "pr_dp_contribution_per_kg_pulp_inr": round(pr_dp_contrib_per_kg, 2),
+            "pr_pp_contribution_per_kg_pulp_inr": round(pr_pp_contrib_per_kg, 2),
+            "contribution_ratio_dp_vs_pp": round(pr_dp_contrib_per_kg / pr_pp_contrib_per_kg, 2),
+            "emergency_air_freight_cost_inr_cr": EMERGENCY_AIR_FREIGHT_INR_CR if air_freight_trigger else 0.0,
+            "net_pulp_deficit_kg": round(total_shortage_kg),
+            "daily_depletion_timeline": day_records,
+            "is_synthetic_simulation": True,
+        }
+
+    def get_scenario_timeline_comparison(self, scenario_name: str = "PR_DP_VIRAL_SPIKE") -> Dict[str, Any]:
+        """Compare RIOT RADAR early sensing timeline vs historical spreadsheet planner notice timeline."""
+        if scenario_name == "PR_DP_VIRAL_SPIKE":
+            return {
+                "scenario_name": "Dragon Passion (PR-DP) 4x Viral QC Spike",
+                "event_start_date": "2026-05-05",
+                "first_qc_signal_date": "2026-05-06",
+                "agent_flag_date": "2026-05-07",  # 2 days after spike begins
+                "recommendation_date": "2026-05-07",
+                "human_approval_date": "2026-05-08",  # +24h approval latency
+                "transfer_arrival_date": "2026-05-11",  # 3d transit + 1d approval
+                "historical_planner_notice_date": "2026-05-24",  # End of 14d viral run or month-end S&OP
+                "detection_advantage_days": 17,  # 24th May minus 7th May
+                "stockout_prevented_bottles": 78000,
+                "protected_contribution_inr": round(78000 * 60.0 * 0.32),
+                "is_synthetic_reconstruction": True,
+            }
+        else:
+            return {
+                "scenario_name": "Passionfruit Highway Closure (3 Weeks)",
+                "event_start_date": "2026-05-01",
+                "first_qc_signal_date": "2026-05-02",
+                "agent_flag_date": "2026-05-03",
+                "recommendation_date": "2026-05-03",
+                "human_approval_date": "2026-05-04",
+                "transfer_arrival_date": "2026-05-07",
+                "historical_planner_notice_date": "2026-05-16",  # 13 days later when stock hit zero
+                "detection_advantage_days": 13,
+                "stockout_prevented_bottles": 95000,
+                "protected_contribution_inr": round(95000 * 60.0 * 0.32),
+                "is_synthetic_reconstruction": True,
+            }

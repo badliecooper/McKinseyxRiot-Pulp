@@ -1,0 +1,852 @@
+import React, { useState, useEffect } from "react";
+import { 
+  GitCompare, 
+  ArrowRight, 
+  Clock, 
+  CheckCircle, 
+  AlertTriangle, 
+  TrendingUp, 
+  Zap,
+  DollarSign,
+  ShieldAlert,
+  Sliders,
+  Layers,
+  Sparkles
+} from "lucide-react";
+import { api } from "../api/client";
+import { 
+  ScenarioData, 
+  AllocationAlignmentReport, 
+  CausalCascadeData, 
+  CausalCascadeNode 
+} from "../types";
+import { EChart } from "../components/EChart";
+
+export const ScenarioReplay: React.FC = () => {
+  const [scenarioId, setScenarioId] = useState<string>("PR_DP_VIRAL_SPIKE");
+  const [closureWeeks, setClosureWeeks] = useState<number>(3);
+  const [startingCover, setStartingCover] = useState<number>(14);
+  const [rationingStrategy, setRationingStrategy] = useState<string>("CONTRIBUTION_OPTIMIZED");
+  const [airFreight, setAirFreight] = useState<boolean>(false);
+
+  const [data, setData] = useState<ScenarioData | null>(null);
+  const [alignmentReport, setAlignmentReport] = useState<AllocationAlignmentReport | null>(null);
+  const [cascadeData, setCascadeData] = useState<CausalCascadeData | null>(null);
+  const [selectedCascadeNode, setSelectedCascadeNode] = useState<CausalCascadeNode | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  const loadScenario = async () => {
+    try {
+      setLoading(true);
+      const [res, alignRep, cascade] = await Promise.all([
+        api.postScenarioReplay({
+          scenario_id: scenarioId,
+          closure_weeks: closureWeeks,
+          starting_cover_days: startingCover,
+          rationing_strategy: rationingStrategy,
+          air_freight_trigger: airFreight,
+        }),
+        api.getAlignmentIndex(),
+        api.getCausalCascade(),
+      ]);
+      setData(res);
+      setAlignmentReport(alignRep);
+      setCascadeData(cascade);
+    } catch (e: any) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadScenario();
+  }, [scenarioId, closureWeeks, startingCover, rationingStrategy, airFreight]);
+
+  // =========================================================================
+  // ECHARTS CONFIGURATIONS
+  // =========================================================================
+
+  // CHART 9: SHORTAGE MITIGATION WATERFALL
+  const waterfallOption = React.useMemo(() => {
+    if (!data || !data.waterfall) return {};
+
+    const categories = data.waterfall.map(w => w.label);
+    const placeholderData: number[] = [];
+    const barData: any[] = [];
+
+    let runningTotal = 0;
+    data.waterfall.forEach((step, idx) => {
+      const val = step.value;
+      if (idx === 0) {
+        // First bar: Baseline total
+        placeholderData.push(0);
+        barData.push({
+          value: Math.round(val),
+          itemStyle: { color: "#EF4444", borderRadius: [2, 2, 0, 0] },
+        });
+        runningTotal = val;
+      } else if (step.type === "relative") {
+        // Reductions
+        const absVal = Math.abs(val);
+        runningTotal -= absVal;
+        placeholderData.push(Math.round(runningTotal));
+        barData.push({
+          value: Math.round(absVal),
+          itemStyle: { color: idx === 1 ? "#14B8A6" : "#38BDF8", borderRadius: [2, 2, 0, 0] },
+        });
+      } else {
+        // Final total (residual unmet demand)
+        placeholderData.push(0);
+        barData.push({
+          value: Math.round(runningTotal),
+          itemStyle: { color: "#64748B", borderRadius: [2, 2, 0, 0] },
+        });
+      }
+    });
+
+    return {
+      backgroundColor: "transparent",
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        backgroundColor: "#181922",
+        borderColor: "#282937",
+        borderWidth: 1,
+        textStyle: { color: "#F8FAFC", fontSize: 11, fontFamily: "Inter, sans-serif" },
+        formatter: (params: any) => {
+          const p = params[1] || params[0];
+          const orig = data.waterfall[p.dataIndex];
+          return `<div style="font-weight:600; color:#F8FAFC;">${p.name}</div>
+                  <div style="font-family:monospace; margin-top:2px; color:#94A3B8;">Impact: <b style="color:#FFF;">${p.value?.toLocaleString()} btls</b></div>
+                  <div style="color:#64748B; font-size:10px;">${orig?.annotation || ""}</div>`;
+        },
+      },
+      grid: { top: 30, right: 25, bottom: 40, left: 70 },
+      xAxis: {
+        type: "category",
+        data: categories,
+        axisLabel: { color: "#64748B", fontSize: 10, interval: 0 },
+        axisLine: { lineStyle: { color: "#282937" } },
+      },
+      yAxis: {
+        type: "value",
+        name: "Bottles",
+        nameTextStyle: { color: "#64748B", fontSize: 9 },
+        axisLabel: { color: "#64748B", fontSize: 10 },
+        splitLine: { lineStyle: { color: "#1F202B", type: "dashed" } },
+      },
+      series: [
+        {
+          name: "Placeholder",
+          type: "bar",
+          stack: "waterfall",
+          itemStyle: { borderColor: "transparent", color: "transparent" },
+          emphasis: { itemStyle: { color: "transparent" } },
+          data: placeholderData,
+        },
+        {
+          name: "Shortage Delta",
+          type: "bar",
+          stack: "waterfall",
+          data: barData,
+          label: {
+            show: true,
+            position: "top",
+            formatter: (p: any) => `${Math.round(p.value / 1000)}k`,
+            color: "#F8FAFC",
+            fontFamily: "JetBrains Mono, monospace",
+            fontSize: 10,
+          },
+        },
+      ],
+    };
+  }, [data]);
+
+  // CHART 10: SCENARIO TIMELINE & COVER COMPARISON
+  const timelineCoverOption = React.useMemo(() => {
+    if (!data || !data.daily_cover_comparison) return {};
+
+    const days = data.daily_cover_comparison.map(d => `Day ${d.day}`);
+    const historicalCover = data.daily_cover_comparison.map(d => parseFloat(d.historical_cover_days.toFixed(1)));
+    const radarCover = data.daily_cover_comparison.map(d => parseFloat(d.radar_cover_days.toFixed(1)));
+
+    return {
+      backgroundColor: "transparent",
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: "#181922",
+        borderColor: "#282937",
+        borderWidth: 1,
+        textStyle: { color: "#F8FAFC", fontSize: 11, fontFamily: "Inter, sans-serif" },
+      },
+      legend: {
+        data: ["Historical Spreadsheet Policy (Delayed)", "RIOT RADAR S&OP (Early Sensing)"],
+        textStyle: { color: "#94A3B8", fontSize: 10 },
+        top: 0,
+      },
+      grid: { top: 35, right: 30, bottom: 30, left: 55 },
+      xAxis: {
+        type: "category",
+        data: days,
+        axisLabel: { color: "#64748B", fontSize: 10 },
+        axisLine: { lineStyle: { color: "#282937" } },
+      },
+      yAxis: {
+        type: "value",
+        name: "Days of Cover",
+        nameTextStyle: { color: "#64748B", fontSize: 9 },
+        axisLabel: { color: "#64748B", fontSize: 10 },
+        splitLine: { lineStyle: { color: "#1F202B", type: "dashed" } },
+      },
+      series: [
+        {
+          name: "Historical Spreadsheet Policy (Delayed)",
+          type: "line",
+          data: historicalCover,
+          smooth: true,
+          lineStyle: { color: "#EF4444", width: 2 },
+          itemStyle: { color: "#EF4444" },
+          markPoint: {
+            data: [
+              {
+                name: "Planner Notice",
+                coord: ["Day 20", historicalCover[19] || 0],
+                value: "Day 20",
+                itemStyle: { color: "#EF4444" },
+                label: { fontSize: 9, color: "#FFF" },
+              },
+            ],
+          },
+        },
+        {
+          name: "RIOT RADAR S&OP (Early Sensing)",
+          type: "line",
+          data: radarCover,
+          smooth: true,
+          lineStyle: { color: "#14B8A6", width: 2.5 },
+          itemStyle: { color: "#14B8A6" },
+          areaStyle: { color: "rgba(20, 184, 166, 0.08)" },
+          markPoint: {
+            data: [
+              {
+                name: "Agent Flag",
+                coord: ["Day 3", radarCover[2] || 18],
+                value: "Day 3",
+                itemStyle: { color: "#1863DC" },
+                label: { fontSize: 9, color: "#FFF", fontWeight: 600 },
+              },
+            ],
+          },
+          markLine: {
+            silent: true,
+            lineStyle: { type: "dashed", color: "#14B8A6" },
+            data: [{ yAxis: 21, label: { formatter: "21d Target Cover", color: "#14B8A6" } }],
+          },
+        },
+      ],
+    };
+  }, [data]);
+
+  // ADDITIONAL CHART: TRANSFER INTERVENTION IMPACT
+  const interventionImpactOption = React.useMemo(() => {
+    if (!data) return {};
+
+    return {
+      backgroundColor: "transparent",
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        backgroundColor: "#181922",
+        borderColor: "#282937",
+        textStyle: { color: "#F8FAFC", fontSize: 11 },
+      },
+      grid: { top: 20, right: 25, bottom: 25, left: 110 },
+      xAxis: {
+        type: "value",
+        splitLine: { lineStyle: { color: "#1F202B" } },
+        axisLabel: { color: "#64748B", fontSize: 10 },
+      },
+      yAxis: {
+        type: "category",
+        data: ["Shortage Mitigated", "Total Baseline Gap"],
+        axisLabel: { color: "#F8FAFC", fontSize: 10 },
+        axisLine: { lineStyle: { color: "#282937" } },
+      },
+      series: [
+        {
+          type: "bar",
+          data: [
+            { value: data.kpis.shortage_reduction_bottles, itemStyle: { color: "#14B8A6" } },
+            { value: data.waterfall[0]?.value || 840000, itemStyle: { color: "#EF4444" } },
+          ],
+          label: {
+            show: true,
+            position: "right",
+            formatter: (p: any) => `${Math.round(p.value / 1000).toLocaleString()}k btls`,
+            color: "#F8FAFC",
+            fontFamily: "monospace",
+            fontSize: 10,
+          },
+        },
+      ],
+    };
+  }, [data]);
+
+  // ALLOCATION ALIGNMENT BEFORE VS AFTER INTERVENTION
+  const scenarioAlignmentOption = React.useMemo(() => {
+    if (!alignmentReport || !alignmentReport.sku_alignment_indices) return {};
+
+    const items = [...alignmentReport.sku_alignment_indices].reverse();
+    const categories = items.map(s => `${s.sku_id} (${s.flavour})`);
+    const beforeData = items.map(s => s.historical_mix_index_pct);
+    const afterData = items.map(s => ({
+      value: s.post_intervention_index_pct,
+      itemStyle: {
+        color: "#1863dc",
+        borderRadius: [0, 4, 4, 0],
+      },
+    }));
+
+    return {
+      backgroundColor: "transparent",
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        backgroundColor: "#181922",
+        borderColor: "#282937",
+        borderWidth: 1,
+        textStyle: { color: "#f5f6fa", fontSize: 11, fontFamily: "Inter, sans-serif" },
+        formatter: (params: any) => {
+          if (!params || params.length === 0) return "";
+          const idx = params[0].dataIndex;
+          const skuItem = items[idx];
+          if (!skuItem) return "";
+
+          return `<div style="font-weight:600; color:#ffffff; font-family:monospace; margin-bottom:4px;">
+            ${skuItem.sku_id} — ${skuItem.flavour}
+          </div>
+          <div style="color:#b3b6c7; font-size:11px;">Before Intervention (Historical Mix): <b style="color:#ef4444">${skuItem.historical_mix_index_pct}%</b></div>
+          <div style="color:#b3b6c7; font-size:11px;">After Intervention (Rebalanced): <b style="color:#1863dc">${skuItem.post_intervention_index_pct}%</b></div>
+          <div style="color:#0d9488; font-size:11px; margin-top:2px;">Mismatch Reduction: <b>-${skuItem.improvement_pct}%</b></div>
+          <div style="font-size:10px; color:#94a3b8; margin-top:4px; font-style:italic;">Evaluated using identical demand assumptions.</div>`;
+        },
+      },
+      legend: {
+        data: ["Before Intervention (Baseline Mismatch)", "After Intervention (Gold / Rebalanced)"],
+        textStyle: { color: "#b3b6c7", fontSize: 11, fontFamily: "Inter, sans-serif" },
+        top: 0,
+      },
+      grid: { left: "26%", right: "8%", top: "14%", bottom: "6%" },
+      xAxis: {
+        type: "value",
+        axisLabel: { formatter: "{value}%", color: "#b3b6c7", fontSize: 10, fontFamily: "JetBrains Mono, monospace" },
+        splitLine: { lineStyle: { color: "#1e293b", type: "dashed" } },
+        max: (val: any) => Math.max(35, Math.ceil(val.max / 5) * 5),
+      },
+      yAxis: {
+        type: "category",
+        data: categories,
+        axisLabel: { color: "#f5f6fa", fontSize: 11, fontFamily: "Inter, sans-serif", fontWeight: 500 },
+        axisLine: { lineStyle: { color: "#282937" } },
+      },
+      series: [
+        {
+          name: "Before Intervention (Baseline Mismatch)",
+          type: "bar",
+          data: beforeData,
+          barGap: "20%",
+          itemStyle: { color: "#64748b", borderRadius: [0, 4, 4, 0] },
+          label: { show: true, position: "right", formatter: "{c}%", color: "#94a3b8", fontSize: 10, fontFamily: "JetBrains Mono, monospace" },
+        },
+        {
+          name: "After Intervention (Gold / Rebalanced)",
+          type: "bar",
+          data: afterData,
+          itemStyle: { color: "#1863dc", borderRadius: [0, 4, 4, 0] },
+          label: { show: true, position: "right", formatter: "{c}%", color: "#f5f6fa", fontWeight: 600, fontSize: 10, fontFamily: "JetBrains Mono, monospace" },
+        },
+      ],
+    };
+  }, [alignmentReport]);
+
+  return (
+    <div className="space-y-5 pb-8">
+      {/* 1. TOP HEADER & SCENARIO SELECTOR */}
+      <section className="space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-cohere-border pb-3">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-white flex items-center space-x-2">
+              <span>Disruption Scenario Simulation Engine</span>
+              <span className="font-mono text-[10px] text-cohere-muted border border-cohere-border px-2 py-0.5 rounded-pill">
+                DETERMINISTIC DIGITAL TWIN
+              </span>
+            </h1>
+            <p className="text-xs text-cohere-muted mt-0.5">
+              Compare baseline spreadsheet delays against RIOT RADAR early demand sensing, rebalancing, and pulp rationing.
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setScenarioId("PR_DP_VIRAL_SPIKE")}
+              className={`px-4 py-1.5 rounded-pill text-xs font-mono font-medium transition-all ${
+                scenarioId === "PR_DP_VIRAL_SPIKE"
+                  ? "bg-white text-black font-semibold"
+                  : "bg-transparent border border-cohere-border text-neutral-300 hover:text-white"
+              }`}
+            >
+              Dragon Passion demand spike
+            </button>
+            <button
+              onClick={() => setScenarioId("PASSIONFRUIT_HIGHWAY_CLOSURE")}
+              className={`px-4 py-1.5 rounded-pill text-xs font-mono font-medium transition-all ${
+                scenarioId === "PASSIONFRUIT_HIGHWAY_CLOSURE"
+                  ? "bg-white text-black font-semibold"
+                  : "bg-transparent border border-cohere-border text-neutral-300 hover:text-white"
+              }`}
+            >
+              Passionfruit road closure
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* 2. FOUR SCENARIO KPIS */}
+      {data && (
+        <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-cohere-card border border-cohere-border rounded-sm p-4 hover:border-cohere-muted/60 transition-colors">
+            <div className="text-[11px] font-mono tracking-wider uppercase text-cohere-muted">
+              Detection Advantage
+            </div>
+            <div className="text-2xl font-bold font-mono tabular-nums text-cohere-actionBlue mt-1.5">
+              +{data.kpis.detection_advantage_days} Days
+            </div>
+            <div className="text-xs text-cohere-muted mt-1">Day 3 (AI Flag) vs Day 20 (Spreadsheets)</div>
+          </div>
+
+          <div className="bg-cohere-card border border-cohere-border rounded-sm p-4 hover:border-cohere-muted/60 transition-colors">
+            <div className="text-[11px] font-mono tracking-wider uppercase text-cohere-muted">
+              Shortage Reduction
+            </div>
+            <div className="text-2xl font-bold font-mono tabular-nums text-teal-400 mt-1.5">
+              {data.kpis.shortage_reduction_bottles.toLocaleString()} <span className="text-xs font-normal text-cohere-muted">btls</span>
+            </div>
+            <div className="text-xs text-teal-400/90 mt-1 font-mono">Customer Volume Protected</div>
+          </div>
+
+          <div className="bg-cohere-card border border-cohere-border rounded-sm p-4 hover:border-cohere-muted/60 transition-colors">
+            <div className="text-[11px] font-mono tracking-wider uppercase text-cohere-muted">
+              Rebalancing Coverage %
+            </div>
+            <div className="text-2xl font-bold font-mono tabular-nums text-white mt-1.5">
+              {data.kpis.rebalancing_coverage_pct}%
+            </div>
+            <div className="text-xs text-cohere-muted mt-1">Mitigated via Surplus Transfers</div>
+          </div>
+
+          <div className="bg-cohere-card border border-cohere-border rounded-sm p-4 hover:border-cohere-muted/60 transition-colors">
+            <div className="text-[11px] font-mono tracking-wider uppercase text-cohere-muted">
+              Net Mitigation Cost
+            </div>
+            <div className="text-2xl font-bold font-mono tabular-nums text-white mt-1.5">
+              ₹{data.kpis.net_mitigation_cost_inr >= 10000000 
+                ? `${(data.kpis.net_mitigation_cost_inr / 10000000).toFixed(2)} Cr` 
+                : Math.round(data.kpis.net_mitigation_cost_inr).toLocaleString()}
+            </div>
+            <div className="text-xs text-cohere-muted mt-1">
+              {data.kpis.net_mitigation_cost_inr >= 10000000 ? "Emergency Air Freight Mode" : "Inter-Depot Freight (@ ₹1.50/btl)"}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* 3. CHARTS ROW: WATERFALL (CHART 9) & TIMELINE (CHART 10) */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* CHART 9: SHORTAGE MITIGATION WATERFALL */}
+        <div className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-3">
+          <div className="flex items-center justify-between border-b border-cohere-border pb-3">
+            <div>
+              <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono">
+                Chart 9 — Shortage Mitigation Waterfall (Feasible Levers)
+              </div>
+              <div className="text-xs text-cohere-muted mt-0.5">
+                Decomposing baseline shortage reduction across feasible transfers and rationing.
+              </div>
+            </div>
+            <span className="font-mono text-[10px] text-teal-300 bg-teal-950/40 border border-teal-500/30 px-2.5 py-0.5 rounded-pill">
+              FEASIBLE ONLY
+            </span>
+          </div>
+
+          <div className="h-80 w-full">
+            <EChart
+              option={waterfallOption}
+              height={320}
+              loading={loading}
+            />
+          </div>
+          <div className="text-[11px] text-cohere-muted border-t border-cohere-border/60 pt-2 flex items-center justify-between">
+            <span>SCM Guardrail: Co-packer bottling lines cannot solve raw pulp unavailability when roads are closed.</span>
+            <span className="font-mono text-cohere-muted">[CONSTRAINT ENFORCED]</span>
+          </div>
+        </div>
+
+        {/* CHART 10: SCENARIO TIMELINE & COVER COMPARISON */}
+        <div className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-3">
+          <div className="flex items-center justify-between border-b border-cohere-border pb-3">
+            <div>
+              <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono">
+                Chart 10 — Inventory Cover Trajectory (21 Days Horizon)
+              </div>
+              <div className="text-xs text-cohere-muted mt-0.5">
+                Historical delayed baseline (Red) vs. RIOT RADAR proactive rebalancing (Teal).
+              </div>
+            </div>
+            <span className="font-mono text-[10px] text-cohere-actionBlue border border-cohere-actionBlue/40 px-2.5 py-0.5 rounded-pill">
+              +17 DAYS ADVANTAGE
+            </span>
+          </div>
+
+          <div className="h-80 w-full">
+            <EChart
+              option={timelineCoverOption}
+              height={320}
+              loading={loading}
+            />
+          </div>
+
+          {/* Timeline Event Strip */}
+          {data && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-3 rounded-sm bg-cohere-panel border border-cohere-border text-xs font-mono">
+              <div>
+                <span className="text-cohere-muted block text-[10px] uppercase">First Signal:</span>
+                <div className="text-white font-medium">{data.timeline_events.first_signal_date}</div>
+              </div>
+              <div>
+                <span className="text-cohere-actionBlue block text-[10px] uppercase">RIOT RADAR Flag:</span>
+                <div className="text-cohere-actionBlue font-medium">{data.timeline_events.agent_flag_date}</div>
+              </div>
+              <div>
+                <span className="text-rose-400 block text-[10px] uppercase">Planner Notice:</span>
+                <div className="text-rose-400 font-medium">{data.timeline_events.historical_planner_notice_date}</div>
+              </div>
+              <div>
+                <span className="text-teal-400 block text-[10px] uppercase">Transfer Arrival:</span>
+                <div className="text-teal-400 font-medium">{data.timeline_events.transfer_arrival_date}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* 4. ALLOCATION-VS-DEMAND ALIGNMENT BEFORE/AFTER COMPARISON (VISUALIZATION 1) */}
+      <section className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-cohere-border pb-3 gap-2">
+          <div>
+            <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono flex items-center space-x-2">
+              <span className="badge-gold">SCM ANALYTICS</span>
+              <span>1. Allocation-vs-Demand Alignment Index — Before vs After Intervention</span>
+            </div>
+            <div className="text-xs text-cohere-muted mt-0.5">
+              Measures geographic stock-to-demand mismatch: <span className="font-mono text-neutral-300">Σ |Allocation Share − Corrected Demand Share| / 2</span>. Evaluated using identical demand assumptions across both states. Lower values represent tighter alignment.
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <span className="font-mono text-[10px] text-teal-300 bg-teal-950/40 border border-teal-500/30 px-2.5 py-0.5 rounded-pill">
+              GOLD BARS = REBALANCED (AFTER)
+            </span>
+            <span className="font-mono text-[10px] text-cohere-muted border border-cohere-border px-2.5 py-0.5 rounded-pill">
+              GREY = BASELINE (BEFORE)
+            </span>
+          </div>
+        </div>
+
+        <div className="h-60 w-full">
+          <EChart option={scenarioAlignmentOption} height={230} loading={loading} />
+        </div>
+
+        {/* 5-SKU Improvement Metric Summary Strip */}
+        {alignmentReport && (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 pt-1 font-mono text-xs">
+            {alignmentReport.sku_alignment_indices.map((item) => (
+              <div 
+                key={item.sku_id} 
+                className="p-2.5 rounded-xs bg-cohere-panel border border-cohere-border space-y-1"
+              >
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-white font-bold">{item.sku_id}</span>
+                  <span className="text-teal-400 text-[10px] font-semibold">-{item.improvement_pct}% GAP</span>
+                </div>
+                <div className="text-[10px] text-cohere-muted truncate">{item.flavour}</div>
+                <div className="flex justify-between text-[10.5px] pt-1 border-t border-cohere-border/40">
+                  <span className="text-rose-400">{item.historical_mix_index_pct}%</span>
+                  <span className="text-cohere-muted">➔</span>
+                  <span className="text-cohere-actionBlue font-bold">{item.post_intervention_index_pct}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* 5. LIVE CAUSE-AND-EFFECT CASCADE (VISUALIZATION 3) */}
+      <section className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-cohere-border pb-3 gap-2">
+          <div>
+            <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono flex items-center space-x-2">
+              <span className="badge-gold">EXPLAINABLE SCM FEEDBACK LOOP</span>
+              <span>3. Live Cause-and-Effect Cascade</span>
+            </div>
+            <div className="text-xs text-cohere-muted mt-0.5">
+              Live model-derived indicators for the supply chain feedback loop: <span className="text-neutral-300 font-mono">Late Signal ➔ Stale Allocation ➔ Stock-Out ➔ Censored Sales ➔ Underestimated Forecast ➔ Repeated Stock-Out</span>. Click nodes to inspect calculations and darkstore evidence.
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <span className="font-mono text-[10px] text-teal-300 bg-teal-950/40 border border-teal-500/30 px-2.5 py-0.5 rounded-pill">
+              TEAL = MITIGATED STAGE
+            </span>
+            <span className="font-mono text-[10px] text-rose-300 bg-rose-950/40 border border-rose-500/30 px-2.5 py-0.5 rounded-pill">
+              RED = ACTIVE SHORTAGE RISK
+            </span>
+          </div>
+        </div>
+
+        {/* Causal Chain Horizontal / Wrapping Strip */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+          {cascadeData?.nodes?.map((node, idx) => {
+            const isMitigated = node.status === "MITIGATED";
+            const isSelected = selectedCascadeNode?.id === node.id;
+            const borderClass = isSelected 
+              ? "border-cohere-actionBlue shadow-[0_0_12px_rgba(24,99,220,0.3)] bg-cohere-surface"
+              : isMitigated 
+              ? "border-l-2 border-l-scm-healthy border-cohere-border bg-cohere-panel hover:border-cohere-borderLight"
+              : "border-l-2 border-l-scm-critical border-cohere-border bg-cohere-panel hover:border-cohere-borderLight";
+
+            return (
+              <div
+                key={node.id}
+                onClick={() => setSelectedCascadeNode(node)}
+                className={`p-3.5 rounded-sm border ${borderClass} cursor-pointer transition-all flex flex-col justify-between space-y-2 relative group`}
+              >
+                <div className="flex items-center justify-between text-[10px] font-mono">
+                  <span className="text-cohere-muted font-semibold">STAGE 0{node.step_number}</span>
+                  <span className={isMitigated ? "badge-ok" : "badge-critical"}>
+                    [{isMitigated ? "MITIGATED" : "ACTIVE RISK"}]
+                  </span>
+                </div>
+
+                <div>
+                  <div className="text-xs font-semibold text-white group-hover:text-cohere-actionBlue transition-colors">
+                    {node.title}
+                  </div>
+                  <p className="text-[10.5px] text-cohere-textMuted mt-1 line-clamp-2 leading-relaxed">
+                    {node.short_desc}
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-cohere-border/60">
+                  <div className="text-[9.5px] uppercase font-mono text-cohere-muted">{node.model_metric_label}:</div>
+                  <div className={`font-mono text-xs font-bold mt-0.5 ${isMitigated ? "text-teal-400" : "text-rose-400"}`}>
+                    {node.model_metric_value || "Data unavailable"}
+                  </div>
+                </div>
+
+                {idx < 5 && (
+                  <div className="hidden lg:block absolute -right-3 top-1/2 -translate-y-1/2 z-10 pointer-events-none text-cohere-actionBlue">
+                    ➔
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Selected Node Evidence & Calculation Drawer */}
+        {selectedCascadeNode && (
+          <div className="p-4 rounded-sm bg-cohere-surface/80 border border-cohere-actionBlue/40 space-y-3 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-cohere-border pb-2">
+              <div className="flex items-center space-x-2">
+                <span className="badge-gold">INSPECTION</span>
+                <span className="font-mono font-bold text-xs text-white">
+                  Stage {selectedCascadeNode.step_number}: {selectedCascadeNode.title}
+                </span>
+                <span className={selectedCascadeNode.status === "MITIGATED" ? "badge-ok" : "badge-critical"}>
+                  [{selectedCascadeNode.status}]
+                </span>
+              </div>
+              <button 
+                onClick={() => setSelectedCascadeNode(null)}
+                className="text-cohere-muted hover:text-white text-xs font-mono"
+              >
+                Close ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              <div className="p-3 rounded-xs bg-cohere-panel border border-cohere-border space-y-1">
+                <div className="text-[10px] font-mono text-cohere-muted uppercase">Supporting SCM Calculation:</div>
+                <div className="text-neutral-200 leading-normal font-mono text-[11px]">
+                  {selectedCascadeNode.supporting_calculation || "Data unavailable"}
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xs bg-cohere-panel border border-cohere-border space-y-1">
+                <div className="text-[10px] font-mono text-cohere-muted uppercase">Affected SKU–Depot Nodes:</div>
+                <div className="space-y-1">
+                  {selectedCascadeNode.affected_sku_depots?.map((nodeId, i) => (
+                    <div key={i} className="text-cohere-actionBlue font-mono text-[11px] font-medium">
+                      • {nodeId}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xs bg-cohere-panel border border-cohere-border space-y-1">
+                <div className="text-[10px] font-mono text-cohere-muted uppercase">Grounding Evidence &amp; Action:</div>
+                <div className="text-neutral-300 text-[11px] leading-normal">
+                  {selectedCascadeNode.evidence}
+                </div>
+                <div className="pt-1 text-[10.5px] text-teal-400 font-mono">
+                  <b>Lever:</b> {selectedCascadeNode.mitigation_lever}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-[10px] text-cohere-muted italic font-mono pt-1">
+              {cascadeData?.disclaimer || "Explainable causal hypothesis based on operational model dynamics, not proof of statistical causality."}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* 6. ADDITIONAL CHART & SCM CONSTRAINTS PANEL */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* ADDITIONAL CHART E: TRANSFER MITIGATION IMPACT */}
+        <div className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-2">
+          <div className="border-b border-cohere-border pb-2.5 flex items-center justify-between">
+            <div>
+              <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono">
+                Mitigation Effectiveness vs Baseline
+              </div>
+              <div className="text-xs text-cohere-muted mt-0.5">Volume rescued via early sensing &amp; feasible transfers</div>
+            </div>
+            <span className="font-mono text-[10px] text-teal-400 border border-teal-500/30 px-2 py-0.5 rounded-pill">
+              73.8% COVERED
+            </span>
+          </div>
+          <div className="h-48 w-full">
+            <EChart option={interventionImpactOption} height={190} />
+          </div>
+        </div>
+
+        {/* SCM CONSTRAINTS CALLOUT BOX */}
+        <div className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-3">
+          <div className="border-b border-cohere-border pb-2.5 flex items-center justify-between">
+            <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono flex items-center space-x-1.5">
+              <ShieldAlert className="w-3.5 h-3.5 text-cohere-actionBlue" />
+              <span>Supply Chain Physical Constraints</span>
+            </div>
+            <span className="font-mono text-[10px] text-cohere-muted border border-cohere-border px-2 py-0.5 rounded-pill">
+              VERIFIED CASE FACTS
+            </span>
+          </div>
+
+          <div className="space-y-2.5 text-xs leading-relaxed text-neutral-300">
+            <div className="p-3 rounded-sm bg-cohere-panel border border-cohere-border">
+              <div className="font-medium text-white font-mono">1. Dragonfruit Puree 6–8 Week Import Lead Time</div>
+              <p className="text-xs text-cohere-muted mt-1 leading-normal">
+                Red pitaya pulp is imported via ocean freight. When demand surges 4.1x in Quick Commerce, factory batch acceleration is physically bounded by transit. Inter-depot rebalancing is the only lever within the 21-day horizon.
+              </p>
+            </div>
+
+            <div className="p-3 rounded-sm bg-cohere-panel border border-cohere-border">
+              <div className="font-medium text-white font-mono">2. Decoupling Bottling Lines from Raw Pulp Scarcity</div>
+              <p className="text-xs text-cohere-muted mt-1 leading-normal">
+                Co-packers provide bottling capacity, not raw fruit puree. If the Northeast highway outage cuts off passionfruit pulp, co-packers cannot bottle what does not exist. Pulp rationing to higher-contribution PR-DP (₹548.57/kg) must be prioritized over PR-PP (₹274.29/kg).
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 5. INTERACTIVE SCENARIO CONTROLS (SCENARIO B ONLY) */}
+      {scenarioId === "PASSIONFRUIT_HIGHWAY_CLOSURE" && (
+        <section className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-cohere-border pb-3">
+            <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono flex items-center space-x-1.5">
+              <Sliders className="w-3.5 h-3.5 text-cohere-actionBlue" />
+              <span>Interactive Levers — Northeast Highway Outage</span>
+            </div>
+            <span className="font-mono text-[10px] text-teal-300 bg-teal-950/40 border border-teal-500/30 px-2.5 py-0.5 rounded-pill">
+              REAL-TIME SIMULATION
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+            <div>
+              <label className="block text-[10px] font-mono text-cohere-muted uppercase mb-1">
+                Outage Duration (Weeks):
+              </label>
+              <input
+                type="range"
+                min="1"
+                max="6"
+                value={closureWeeks}
+                onChange={(e) => setClosureWeeks(parseInt(e.target.value))}
+                className="w-full accent-cohere-actionBlue cursor-pointer h-1.5 bg-cohere-surface rounded"
+              />
+              <div className="font-mono text-right text-white font-medium text-xs mt-1">{closureWeeks} Weeks</div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-mono text-cohere-muted uppercase mb-1">
+                Starting Factory Pulp Cover (Days):
+              </label>
+              <input
+                type="range"
+                min="7"
+                max="28"
+                value={startingCover}
+                onChange={(e) => setStartingCover(parseInt(e.target.value))}
+                className="w-full accent-cohere-actionBlue cursor-pointer h-1.5 bg-cohere-surface rounded"
+              />
+              <div className="font-mono text-right text-white font-medium text-xs mt-1">{startingCover} Days Cover</div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-mono text-cohere-muted uppercase mb-1">
+                Pulp Rationing Recipe:
+              </label>
+              <select
+                value={rationingStrategy}
+                onChange={(e) => setRationingStrategy(e.target.value)}
+                className="w-full bg-cohere-panel border border-cohere-border rounded-sm px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cohere-actionBlue cursor-pointer"
+              >
+                <option value="CONTRIBUTION_OPTIMIZED" className="bg-cohere-panel">Protect PR-DP (₹548.57/kg pulp)</option>
+                <option value="PRO_RATA" className="bg-cohere-panel">Pro-Rata (-30% Across All)</option>
+                <option value="HISTORICAL_UNGOVERNED" className="bg-cohere-panel">Ungoverned (First-Come First-Served)</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col justify-between">
+              <label className="block text-[10px] font-mono text-cohere-muted uppercase mb-1">
+                Emergency Air Freight Lever:
+              </label>
+              <button
+                onClick={() => setAirFreight(!airFreight)}
+                className={`py-2 px-3 rounded-pill font-mono font-medium text-xs transition-colors ${
+                  airFreight 
+                    ? "bg-rose-950/50 border border-rose-500/50 text-rose-300" 
+                    : "bg-cohere-surface border border-cohere-border text-neutral-300 hover:text-white"
+                }`}
+              >
+                {airFreight ? "[EMERGENCY AIR CHARTER ACTIVE]" : "[ACTIVATE AIR FREIGHT]"}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+};

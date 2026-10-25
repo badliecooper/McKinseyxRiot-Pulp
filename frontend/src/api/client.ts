@@ -1,0 +1,252 @@
+import {
+  HealthRibbon,
+  NationalKPIs,
+  HeatmapResponse,
+  RiskMatrixResponse,
+  LossAttributionData,
+  AlarmItem,
+  RebalancingProposal,
+  SkuDepotItem,
+  DemandSeriesPoint,
+  InventoryProjectionPoint,
+  ScenarioData,
+  AllocationAlignmentReport,
+  ForecastAccuracyComparison,
+  CausalCascadeData,
+  PulpBuildTimelineData,
+} from "../types";
+
+const API_BASE = "/api";
+
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${url}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+  });
+
+  if (!res.ok) {
+    let errorDetail = "API request failed";
+    try {
+      const err = await res.json();
+      errorDetail = err.detail || err.message || JSON.stringify(err);
+    } catch {
+      errorDetail = res.statusText;
+    }
+    throw new Error(errorDetail);
+  }
+
+  return res.json();
+}
+
+export const api = {
+  // Health & Summary
+  getHealth: () => fetchJson<{ status: string; version: string; operating_mode: string }>("/health"),
+  getControlTowerSummary: () => fetchJson<{ health_ribbon: HealthRibbon; kpis: NationalKPIs; data_honesty_badge: string }>("/control-tower/summary"),
+  getHealthRibbon: () => fetchJson<HealthRibbon>("/control-tower/health-ribbon"),
+  getNationalKPIs: () => fetchJson<NationalKPIs>("/control-tower/kpis"),
+
+  // Control Tower
+  getHeatmap: (metric = "allocation_gap") =>
+    fetchJson<HeatmapResponse>(`/control-tower/heatmap?metric=${metric}`),
+  getRiskMatrix: () => fetchJson<RiskMatrixResponse>("/control-tower/risk-matrix"),
+  getRebalancingNetwork: () =>
+    fetchJson<{ proposals: RebalancingProposal[]; count: number }>("/control-tower/rebalancing-network"),
+  getLossAttribution: () => fetchJson<LossAttributionData>("/control-tower/loss-attribution"),
+  getDemandMix: () => fetchJson<any[]>("/control-tower/demand-mix"),
+  getForecastVintageTrend: () => fetchJson<{ labels: string[]; wape_series: number[]; bias_series: number[]; naive_wape_series: number[]; details: any[] }>("/control-tower/forecast-accuracy/vintage-trend"),
+  redistributeLosses: (changed_cause_key: string, new_value_pct: number, current_shares: Record<string, number>) =>
+    fetchJson<LossAttributionData>("/control-tower/loss-attribution/redistribute", {
+      method: "POST",
+      body: JSON.stringify({ changed_cause_key, new_value_pct, current_shares }),
+    }),
+
+  // Depot Explorer
+  getDepots: () => fetchJson<{ depot_id: string; name: string; region: string; lead_time_days: number }[]>("/depots"),
+  getSkus: () => fetchJson<{ sku_id: string; flavour: string; summer_share_pct: number; primary_planning_concern: string }[]>("/skus"),
+  getSkuDepotGrid: (skuId?: string, depotId?: string) => {
+    const params = new URLSearchParams();
+    if (skuId) params.append("sku_id", skuId);
+    if (depotId) params.append("depot_id", depotId);
+    return fetchJson<{ data: SkuDepotItem[]; total: number }>(`/sku-depot?${params.toString()}`);
+  },
+  getSkuDepotDetail: (skuId: string, depotId: string) =>
+    fetchJson<SkuDepotItem>(`/sku-depot/detail?sku_id=${skuId}&depot_id=${depotId}`),
+  getDemandSeries: (skuId: string, depotId: string, days?: number, timeframe?: string) => {
+    const params = new URLSearchParams({ sku_id: skuId, depot_id: depotId });
+    if (timeframe) params.append("timeframe", timeframe);
+    else if (days) params.append("days", days.toString());
+    return fetchJson<{ series: DemandSeriesPoint[]; total_days: number; timeframe?: string }>(`/sku-depot/demand-series?${params.toString()}`);
+  },
+  getInventoryProjection: (skuId: string, depotId: string, horizon = 21) =>
+    fetchJson<{
+      sku_id: string;
+      depot_id: string;
+      target_stock: number;
+      days_of_cover: number | null;
+      projected_stockout_date: string;
+      shelf_life_status: string;
+      timeline: InventoryProjectionPoint[];
+    }>(`/sku-depot/inventory-projection?sku_id=${skuId}&depot_id=${depotId}&horizon_days=${horizon}`),
+  getTransfers: (skuId?: string, depotId?: string) => {
+    const params = new URLSearchParams();
+    if (skuId) params.append("sku_id", skuId);
+    if (depotId) params.append("depot_id", depotId);
+    return fetchJson<{ proposals: RebalancingProposal[]; count: number }>(`/transfers?${params.toString()}`);
+  },
+  postStockoutReport: (report: {
+    depot_id: string;
+    sku_id: string;
+    channel: string;
+    estimated_unmet_bottles: number;
+    reported_by: string;
+    evidence_source: string;
+    notes?: string;
+  }) =>
+    fetchJson<{ status: string; report_id: string; message: string }>("/stockout-reports", {
+      method: "POST",
+      body: JSON.stringify(report),
+    }),
+
+  // Scenarios
+  getScenarios: () => fetchJson<{ scenarios: { scenario_id: string; title: string; description: string }[] }>("/scenarios"),
+  postScenarioReplay: (req: {
+    scenario_id: string;
+    closure_weeks?: number;
+    starting_cover_days?: number;
+    rationing_strategy?: string;
+    air_freight_trigger?: boolean;
+  }) =>
+    fetchJson<ScenarioData>("/scenarios/replay", {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+
+  // Alarms & Recommendations
+  getAlarms: (severity?: string, status?: string, depotId?: string) => {
+    const params = new URLSearchParams();
+    if (severity) params.append("severity", severity);
+    if (status) params.append("status", status);
+    if (depotId) params.append("depot_id", depotId);
+    return fetchJson<{ alarms: AlarmItem[]; total: number; unread_count: number }>(`/alarms?${params.toString()}`);
+  },
+  markAlarmRead: (alarmId: string) =>
+    fetchJson<{ status: string; alarm_id: string; is_read: boolean }>(`/alarms/${alarmId}/mark-read`, {
+      method: "POST",
+    }),
+  markAllAlarmsRead: () =>
+    fetchJson<{ status: string; message: string }>("/alarms/mark-all-read", {
+      method: "POST",
+    }),
+  acknowledgeAlarm: (alarmId: string, actorId = "Central-Planner") =>
+    fetchJson<{ status: string; alarm_id: string }>(`/alarms/${alarmId}/acknowledge`, {
+      method: "POST",
+      body: JSON.stringify({ actor_id: actorId }),
+    }),
+  resolveAlarm: (alarmId: string, notes = "Mitigated via control tower.") =>
+    fetchJson<{ status: string; alarm_id: string }>(`/alarms/${alarmId}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ actor_id: "Central-Planner", notes }),
+    }),
+
+  // Data Upload
+  getUploadStatus: () =>
+    fetchJson<{
+      status: string;
+      last_upload: any;
+      supported_channels: string[];
+      data_honesty_badge: string;
+      retailer_integration_status: string;
+    }>("/upload/status"),
+  uploadSalesCsv: async (formData: FormData) => {
+    const res = await fetch("/api/upload/sales", {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) {
+      let errDetail = "Upload failed";
+      try {
+        const err = await res.json();
+        errDetail = err.detail || err.message || JSON.stringify(err);
+      } catch {
+        errDetail = res.statusText;
+      }
+      throw new Error(errDetail);
+    }
+    return res.json();
+  },
+  triggerDetection: (skuId?: string, depotId?: string) => {
+    const params = new URLSearchParams();
+    if (skuId) params.append("sku_id", skuId);
+    if (depotId) params.append("depot_id", depotId);
+    return fetchJson<{ status: string; run_id: string; recommendations_generated: any[] }>(`/agent/detect?${params.toString()}`, {
+      method: "POST",
+    });
+  },
+  getRecommendations: (status?: string) => {
+    const params = new URLSearchParams();
+    if (status) params.append("status", status);
+    return fetchJson<{ recommendations: RebalancingProposal[]; total: number }>(`/recommendations?${params.toString()}`);
+  },
+  postApprovalDecision: (
+    recId: string,
+    decision: "APPROVE" | "MODIFY" | "REJECT",
+    approverId = "Lead-Planner-Web",
+    modifiedQuantity?: number,
+    notes?: string
+  ) =>
+    fetchJson<{ is_valid_decision: boolean; persisted_status: string; summary_message: string; audit_event_id: string }>(
+      `/recommendations/${recId}/decision`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          decision,
+          approver_id: approverId,
+          modified_quantity_bottles: modifiedQuantity,
+          notes,
+        }),
+      }
+    ),
+
+  // Copilot Chat
+  postCopilotChat: (message: string, skuId?: string, depotId?: string, history?: any[]) =>
+    fetchJson<{ reply: string; operating_mode: string; grounded_evidence: any; suggested_actions: any[] }>("/copilot/chat", {
+      method: "POST",
+      body: JSON.stringify({ message, sku_id: skuId, depot_id: depotId, history }),
+    }),
+
+  // Reports
+  getReportPreview: (week = "2026-W18") =>
+    fetchJson<{
+      report_week: string;
+      generation_time: string;
+      overall_rag_status: string;
+      key_metrics: Record<string, any>;
+      executive_summary: string;
+      data_honesty_note: string;
+    }>(`/reports/weekly/preview?week=${week}`),
+  generateReport: (week = "2026-W18") =>
+    fetchJson<{ status: string; filename: string; download_url: string; message: string }>(`/reports/weekly/generate?week=${week}`, {
+      method: "POST",
+    }),
+
+  // Four Supply Chain Analytics Visualizations
+  getAlignmentIndex: () =>
+    fetchJson<AllocationAlignmentReport>("/sku-depot/alignment-index"),
+  getForecastAccuracyComparison: (vintage = "VINTAGE-2026-W18") =>
+    fetchJson<ForecastAccuracyComparison>(`/control-tower/forecast-accuracy/national-vs-local?vintage=${vintage}`),
+  getPulpBuildTimeline: (startingCover = 14, targetCover = 24, weeklyBuildKg = 18000, holdingCostRate?: number) => {
+    const params = new URLSearchParams();
+    params.append("starting_cover", startingCover.toString());
+    params.append("target_cover", targetCover.toString());
+    params.append("weekly_buffer_build_kg", weeklyBuildKg.toString());
+    if (holdingCostRate !== undefined && holdingCostRate !== null) {
+      params.append("holding_cost_rate", holdingCostRate.toString());
+    }
+    return fetchJson<PulpBuildTimelineData>(`/control-tower/pulp-build-timeline?${params.toString()}`);
+  },
+  getCausalCascade: () =>
+    fetchJson<CausalCascadeData>("/scenarios/causal-cascade"),
+};

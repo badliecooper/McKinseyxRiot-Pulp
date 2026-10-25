@@ -1,0 +1,22 @@
+upload_id,uploaded_at,uploader,source_channel,reporting_period,records_processed,records_inserted,duplicates_skipped,errors_count
+UPL-2026-0305-01,2026-03-05 09:00:00,Demand Ops Telemetry,Quick Commerce,2026-03-01 to 2026-03-05,225,225,0,0
+UPL-2026-0315-02,2026-03-15 09:00:00,Distributor Feed,Modern Trade,2026-03-06 to 2026-03-15,450,450,0,0
+UPL-2026-0331-03,2026-03-31 18:00:00,S&OP Spreadsheet Consolidation,General Trade,2026-03-01 to 2026-03-31,1395,1395,0,0
+UPL-2026-0415-04,2026-04-15 09:00:00,Demand Ops Telemetry,Quick Commerce,2026-04-01 to 2026-04-15,675,675,0,0
+UPL-2026-0430-05,2026-04-30 18:00:00,S&OP Monthly Planner,General Trade,2026-04-01 to 2026-04-30,1350,1350,0,0
+UPL-2026-0515-06,2026-05-15 09:00:00,Demand Ops Telemetry,Quick Commerce,2026-05-01 to 2026-05-15,675,675,0,0
+UPL-2026-0520-07,2026-05-20 08:00:00,S&OP Demand Sensing Pipeline,All Channels,2026-05-13 to 2026-05-20,315,315,0,0
+UPL-2026-0610-08,2026-06-10 09:00:00,Co-Packer Telemetry Connector,Modern Trade,2026-06-01 to 2026-06-10,450,450,0,0
+UPL-2026-0630-09,2026-06-30 18:00:00,Quarterly S&OP Audit Feed,All Channels,2026-03-01 to 2026-06-30,5490,5490,0,0
+UPL-10242354-001,2026-10-24 23:54:32,Test Planner,Quick Commerce,2026-06-15 to 2026-06-15,1,1,0,0
+UPL-10250000-001,2026-10-25 00:00:01,Test Planner,Quick Commerce,2026-06-15 to 2026-06-15,1,1,0,0
+UPL-10250116-001,2026-10-25 01:16:35,Test Planner,Quick Commerce,2026-06-15 to 2026-06-15,1,1,0,0
+UPL-10250139-001,2026-10-25 01:39:34,Test Planner,Quick Commerce,2026-06-15 to 2026-06-15,1,1,0,0
+UPL-10250145-001,2026-10-25 01:45:00,Test Planner,Quick Commerce,2026-06-15 to 2026-06-15,1,1,0,0
+UPL-10250158-001,2026-10-25 01:58:24,Test Planner,Quick Commerce,2026-06-15 to 2026-06-15,1,1,0,0
+UPL-10250227-001,2026-10-25 02:27:07,Test Planner,Quick Commerce,2026-06-15 to 2026-06-15,1,1,0,0
+UPL-10250307-001,2026-10-25 03:07:45,Test Planner,Quick Commerce,2026-06-15 to 2026-06-15,1,1,0,0
+UPL-10250325-001,2026-10-25 03:25:15,Test Planner,Quick Commerce,2026-06-15 to 2026-06-15,1,1,0,0
+UPL-10250326-001,2026-10-25 03:26:29,Test Planner,Quick Commerce,2026-06-15 to 2026-06-15,1,1,0,0
+UPL-10250422-001,2026-10-25 04:22:34,Test Planner,Quick Commerce,2026-06-15 to 2026-06-15,1,1,0,0
+UPL-10250426-001,2026-10-25 04:26:22,Test Planner,Quick Commerce,2026-06-15 to 2026-06-15,1,1,0,0

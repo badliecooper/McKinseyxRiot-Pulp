@@ -1,0 +1,190 @@
+"""Control Tower API endpoints for RIOT RADAR."""
+
+from typing import Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Query
+import pandas as pd
+import numpy as np
+
+import tools
+from config.business_rules import (
+    SKUS,
+    DEPOTS,
+    ROOT_CAUSE_CONFIG,
+    COLOR_TOKENS,
+)
+from services.loss_attribution import (
+    get_loss_categories,
+    redistribute_root_causes,
+    calculate_root_cause_exposures,
+)
+from api.schemas import (
+    HealthRibbonResponse,
+    NationalKPIsResponse,
+    HeatmapResponse,
+    RiskMatrixPoint,
+    RebalancingNetworkEdge,
+    LossAttributionResponse,
+    RootCauseRedistributeRequest,
+)
+
+router = APIRouter(prefix="/control-tower", tags=["Control Tower"])
+
+
+@router.get("/health-ribbon", response_model=HealthRibbonResponse)
+def get_health_ribbon():
+    """Retrieve deterministic 5-module RAG health ribbon."""
+    ribbon = tools.get_health_ribbon()
+    return ribbon
+
+
+@router.get("/kpis", response_model=NationalKPIsResponse)
+def get_national_kpis():
+    """Retrieve exactly six national operational KPI cards."""
+    kpis = tools.get_national_kpis()
+    return kpis
+
+
+@router.get("/summary")
+def get_control_tower_summary():
+    """Consolidated summary for dashboard header and initial load."""
+    ribbon = tools.get_health_ribbon()
+    kpis = tools.get_national_kpis()
+    return {
+        "health_ribbon": ribbon,
+        "kpis": kpis,
+        "data_honesty_badge": "Note: Lot-level shelf-life distribution and ground-truth series are synthetic demo constructs calibrated to case constraints.",
+    }
+
+
+@router.get("/heatmap")
+def get_flavour_depot_heatmap(
+    metric: str = Query("allocation_gap")
+):
+    """Retrieve 9x5 Flavour by Depot operational grid for heatmap visualization."""
+    grid = tools.get_sku_depot_grid()
+    if grid.empty:
+        raise HTTPException(status_code=404, detail="Grid data unavailable")
+
+    skus = list(SKUS.keys())
+    depot_ids = [d["depot_id"] for d in DEPOTS]
+
+    pivot = grid.pivot(index="depot_id", columns="sku_id", values=metric).reindex(index=depot_ids, columns=skus)
+    matrix = []
+    for d_id in depot_ids:
+        row = []
+        for s_id in skus:
+            val = pivot.loc[d_id, s_id] if (d_id in pivot.index and s_id in pivot.columns) else None
+            if pd.isna(val) or val is None:
+                row.append(None)
+            else:
+                row.append(round(float(val), 1))
+        matrix.append(row)
+
+    cells = []
+    for _, r in grid.iterrows():
+        cells.append({
+            "depot_id": r["depot_id"],
+            "sku_id": r["sku_id"],
+            "flavour": r["flavour"],
+            "value": round(float(r[metric]), 1) if pd.notna(r[metric]) and r[metric] is not None else None,
+            "allocation_gap": round(float(r["allocation_gap"])),
+            "days_of_cover": round(float(r["days_of_cover"]), 1) if pd.notna(r["days_of_cover"]) and r["days_of_cover"] is not None else None,
+            "wape_pct": round(float(r["wape_pct"]), 1) if pd.notna(r["wape_pct"]) and r["wape_pct"] is not None else None,
+            "corrected_demand": round(float(r["corrected_demand"])),
+            "total_usable_stock": round(float(r["total_usable_stock"])),
+        })
+
+    return {
+        "metric": metric,
+        "columns": skus,
+        "rows": depot_ids,
+        "matrix": matrix,
+        "cells": cells,
+    }
+
+
+@router.get("/risk-matrix")
+def get_risk_matrix():
+    """Retrieve demand vs cover scatter plot points with deterministic risk classification."""
+    grid = tools.get_sku_depot_grid()
+    points = []
+    for _, r in grid.iterrows():
+        doc = float(r["days_of_cover"]) if pd.notna(r["days_of_cover"]) and r["days_of_cover"] is not None else 0.0
+        demand = float(r["forecast_demand"])
+        
+        # Risk classification
+        if doc < 7.0:
+            risk = "CRITICAL"
+        elif doc < 14.0:
+            risk = "WARNING"
+        elif doc >= 21.0:
+            risk = "SURPLUS"
+        else:
+            risk = "HEALTHY"
+
+        points.append({
+            "sku_id": r["sku_id"],
+            "flavour": r["flavour"],
+            "depot_id": r["depot_id"],
+            "depot_name": r["depot_name"],
+            "forecast_demand": round(demand),
+            "days_of_cover": round(doc, 1) if doc > 0 else None,
+            "allocation_gap": round(float(r["allocation_gap"])),
+            "projected_stockout_date": str(r["projected_stockout_date"]),
+            "risk_level": risk,
+        })
+
+    return {
+        "points": points,
+        "thresholds": {
+            "critical_cover_days": 7.0,
+            "warning_cover_days": 14.0,
+            "target_cover_days": 21.0,
+            "high_demand_threshold": 3500.0,
+        }
+    }
+
+
+@router.get("/rebalancing-network")
+def get_rebalancing_network():
+    """Retrieve feasible inter-depot transfer opportunities."""
+    proposals = tools.plan_rebalancing()
+    return {"proposals": proposals, "count": len(proposals)}
+
+
+@router.get("/loss-attribution")
+def get_loss_attribution():
+    """Retrieve non-overlapping loss categories and default root-cause breakdown."""
+    loss = get_loss_categories()
+    default_shares = {
+        "late_demand_detection": ROOT_CAUSE_CONFIG["late_demand_detection"]["default_pct"],
+        "stale_allocation_censored_loop": ROOT_CAUSE_CONFIG["stale_allocation_censored_loop"]["default_pct"],
+        "single_source_pulp_rationing": ROOT_CAUSE_CONFIG["single_source_pulp_rationing"]["default_pct"],
+    }
+    attr_res = calculate_root_cause_exposures(default_shares)
+    return {
+        **loss,
+        "root_cause_breakdown": attr_res["breakdown"],
+        "disclaimer": attr_res["disclaimer"],
+    }
+
+
+@router.post("/loss-attribution/redistribute")
+def post_redistribute_losses(req: RootCauseRedistributeRequest):
+    """Deterministically redistribute root-cause percentages respecting min/max ranges and sum=100%."""
+    shares, is_valid, msg = redistribute_root_causes(
+        changed_cause_key=req.changed_cause_key,
+        new_value_pct=req.new_value_pct,
+        current_shares=req.current_shares,
+    )
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=msg)
+    
+    attr_res = calculate_root_cause_exposures(shares)
+    loss = get_loss_categories()
+    return {
+        **loss,
+        "root_cause_breakdown": attr_res["breakdown"],
+        "shares_sum_pct": attr_res["shares_sum_pct"],
+        "message": msg,
+    }

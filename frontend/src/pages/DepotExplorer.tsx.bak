@@ -1,0 +1,1051 @@
+import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
+import { 
+  MapPin, 
+  Layers, 
+  Calendar, 
+  ArrowRight, 
+  Send, 
+  Clock, 
+  CheckCircle2, 
+  AlertCircle,
+  Truck,
+  TrendingUp,
+  ShieldCheck,
+  ShieldAlert,
+  Info,
+  Check,
+  X,
+  Edit2
+} from "lucide-react";
+import { api } from "../api/client";
+import { 
+  SkuDepotItem, 
+  DemandSeriesPoint, 
+  InventoryProjectionPoint, 
+  RebalancingProposal,
+  AllocationAlignmentReport,
+  SkuAlignmentIndex
+} from "../types";
+import { EChart } from "../components/EChart";
+
+export const DepotExplorer: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const initialDepot = searchParams.get("depot") || "Depot-West-01";
+  const initialSku = searchParams.get("sku") || "PR-DP";
+
+  const [depots, setDepots] = useState<any[]>([]);
+  const [skus, setSkus] = useState<any[]>([]);
+  const [selectedDepot, setSelectedDepot] = useState<string>(initialDepot);
+  const [selectedSku, setSelectedSku] = useState<string>(initialSku);
+
+  const [detail, setDetail] = useState<SkuDepotItem | null>(null);
+  const [demandSeries, setDemandSeries] = useState<DemandSeriesPoint[]>([]);
+  const [projection, setProjection] = useState<any>(null);
+  const [proposals, setProposals] = useState<RebalancingProposal[]>([]);
+  const [alignmentReport, setAlignmentReport] = useState<AllocationAlignmentReport | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // Manual stockout report form state
+  const [channel, setChannel] = useState<string>("Quick Commerce");
+  const [unmetBottles, setUnmetBottles] = useState<number>(15000);
+  const [reporter, setReporter] = useState<string>("Store Operations Lead");
+  const [evidence, setEvidence] = useState<string>("Blinkit/Zepto partner dark store stockout logs");
+  const [notes, setNotes] = useState<string>("Zero inventory across 14 dark stores during peak velocity surge.");
+  const [reportSuccess, setReportSuccess] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  // Modify proposal modal state
+  const [modifyingProposal, setModifyingProposal] = useState<RebalancingProposal | null>(null);
+  const [modifiedQty, setModifiedQty] = useState<number>(0);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [depList, skuList, dDetail, dSeries, dProj, dTrans, dAlign] = await Promise.all([
+        api.getDepots(),
+        api.getSkus(),
+        api.getSkuDepotDetail(selectedSku, selectedDepot),
+        api.getDemandSeries(selectedSku, selectedDepot, 30),
+        api.getInventoryProjection(selectedSku, selectedDepot, 21),
+        api.getTransfers(selectedSku, selectedDepot),
+        api.getAlignmentIndex(),
+      ]);
+
+      setDepots(depList);
+      setSkus(skuList);
+      setDetail(dDetail);
+      setDemandSeries(dSeries.series);
+      setProjection(dProj);
+      setProposals(dTrans.proposals);
+      setAlignmentReport(dAlign);
+    } catch (e: any) {
+      console.error("Failed to load depot explorer:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, [selectedDepot, selectedSku]);
+
+  const handleDecision = async (recId: string, decision: "APPROVE" | "MODIFY" | "REJECT", modQty?: number) => {
+    try {
+      const res = await api.postApprovalDecision(recId, decision, "Depot-Planner-UI", modQty);
+      setActionMessage(res.summary_message);
+      // Reload proposals and detail
+      const [dDetail, dTrans] = await Promise.all([
+        api.getSkuDepotDetail(selectedSku, selectedDepot),
+        api.getTransfers(selectedSku, selectedDepot),
+      ]);
+      setDetail(dDetail);
+      setProposals(dTrans.proposals);
+    } catch (e: any) {
+      alert("Decision failed: " + e.message);
+    }
+  };
+
+  const handleSubmitStockout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await api.postStockoutReport({
+        depot_id: selectedDepot,
+        sku_id: selectedSku,
+        channel,
+        estimated_unmet_bottles: unmetBottles,
+        reported_by: reporter,
+        evidence_source: evidence,
+        notes,
+      });
+      setReportSuccess(`Logged: ${res.report_id} — Field telemetry saved to stockout_reports.csv.`);
+      loadData();
+    } catch (err: any) {
+      alert("Error reporting stockout: " + err.message);
+    }
+  };
+
+  // =========================================================================
+  // ECHARTS CONFIGURATIONS
+  // =========================================================================
+
+  // CHART 7: DEMAND SENSING VS FORECAST
+  const demandSensingOption = React.useMemo(() => {
+    if (!demandSeries || demandSeries.length === 0) return {};
+
+    const dates = demandSeries.map(d => d.date.slice(5));
+    const observed = demandSeries.map(d => Math.round(d.observed_sales));
+    const forecast = demandSeries.map(d => Math.round(d.forecast_demand));
+    const corrected = demandSeries.map(d => Math.round(d.corrected_demand));
+
+    // Identify stockout flagged windows
+    const markAreaData: any[] = [];
+    let startIdx: number | null = null;
+    demandSeries.forEach((pt, idx) => {
+      if (pt.is_stockout_flagged && startIdx === null) {
+        startIdx = idx;
+      } else if (!pt.is_stockout_flagged && startIdx !== null) {
+        markAreaData.push([{ xAxis: dates[startIdx] }, { xAxis: dates[idx - 1] }]);
+        startIdx = null;
+      }
+    });
+    if (startIdx !== null) {
+      markAreaData.push([{ xAxis: dates[startIdx] }, { xAxis: dates[dates.length - 1] }]);
+    }
+
+    return {
+      backgroundColor: "transparent",
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: "#181922",
+        borderColor: "#282937",
+        borderWidth: 1,
+        textStyle: { color: "#F8FAFC", fontSize: 11, fontFamily: "Inter, sans-serif" },
+        formatter: (params: any) => {
+          let s = `<div style="font-weight:600; color:#F8FAFC;">Date: ${params[0].name}</div>`;
+          params.forEach((p: any) => {
+            s += `<div style="color:#94A3B8;">${p.marker} ${p.seriesName}: <b style="color:#FFF;">${p.value?.toLocaleString()} btls</b></div>`;
+          });
+          const original = demandSeries.find(d => d.date.endsWith(params[0].name));
+          if (original?.is_stockout_flagged) {
+            s += `<div style="color:#EF4444; font-weight:600; margin-top:3px; font-family:monospace;">[STOCK-OUT CENSORED WINDOW]</div>`;
+          }
+          return s;
+        },
+      },
+      legend: {
+        data: ["Observed Sales", "Saved Forecast Vintage", "Corrected Latent Demand"],
+        textStyle: { color: "#94A3B8", fontSize: 10 },
+        top: 0,
+      },
+      grid: { top: 35, right: 25, bottom: 30, left: 60 },
+      xAxis: {
+        type: "category",
+        data: dates,
+        axisLabel: { color: "#64748B", fontSize: 10 },
+        axisLine: { lineStyle: { color: "#282937" } },
+      },
+      yAxis: {
+        type: "value",
+        name: "Bottles / Day",
+        nameTextStyle: { color: "#64748B", fontSize: 9 },
+        axisLabel: { color: "#64748B", fontSize: 10 },
+        splitLine: { lineStyle: { color: "#1F202B", type: "dashed" } },
+      },
+      series: [
+        {
+          name: "Observed Sales",
+          type: "line",
+          data: observed,
+          smooth: true,
+          lineStyle: { color: "#64748B", width: 2 },
+          itemStyle: { color: "#64748B" },
+        },
+        {
+          name: "Saved Forecast Vintage",
+          type: "line",
+          data: forecast,
+          smooth: true,
+          lineStyle: { color: "#38BDF8", width: 2, type: "dashed" },
+          itemStyle: { color: "#38BDF8" },
+        },
+        {
+          name: "Corrected Latent Demand",
+          type: "line",
+          data: corrected,
+          smooth: true,
+          lineStyle: { color: "#A78BFA", width: 2.5 },
+          itemStyle: { color: "#A78BFA" },
+          areaStyle: {
+            color: "rgba(167, 139, 250, 0.08)",
+          },
+          markArea: {
+            silent: true,
+            itemStyle: { color: "rgba(239, 68, 68, 0.12)" },
+            data: markAreaData,
+          },
+        },
+      ],
+    };
+  }, [demandSeries]);
+
+  // CHART 8: PROJECTED INVENTORY DEPLETION SAWTOOTH
+  const inventorySawtoothOption = React.useMemo(() => {
+    if (!projection || !projection.timeline || projection.timeline.length === 0) return {};
+
+    const dates = projection.timeline.map((t: any) => t.date.slice(5));
+    const closingStock = projection.timeline.map((t: any) => Math.round(t.closing_stock));
+    const inbounds = projection.timeline.map((t: any) => Math.round(t.inbound_receipt_qty));
+    const targetStock = projection.target_stock || 0;
+
+    return {
+      backgroundColor: "transparent",
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: "#181922",
+        borderColor: "#282937",
+        borderWidth: 1,
+        textStyle: { color: "#F8FAFC", fontSize: 11, fontFamily: "Inter, sans-serif" },
+        formatter: (params: any) => {
+          let s = `<div style="font-weight:600; color:#F8FAFC;">Date: ${params[0].name}</div>`;
+          params.forEach((p: any) => {
+            s += `<div style="color:#94A3B8;">${p.marker} ${p.seriesName}: <b style="color:#FFF;">${p.value?.toLocaleString()} btls</b></div>`;
+          });
+          const target = projection.timeline.find((t: any) => t.date.endsWith(params[0].name));
+          if (target && target.is_stocked_out) {
+            s += `<div style="color:#EF4444; font-weight:600; margin-top:3px; font-family:monospace;">[PROJECTED STOCKOUT]</div>`;
+          }
+          return s;
+        },
+      },
+      legend: {
+        data: ["Usable Closing Stock", "Inbound Receipts (+Qty)"],
+        textStyle: { color: "#94A3B8", fontSize: 10 },
+        top: 0,
+      },
+      grid: { top: 35, right: 25, bottom: 30, left: 65 },
+      xAxis: {
+        type: "category",
+        data: dates,
+        axisLabel: { color: "#64748B", fontSize: 10 },
+        axisLine: { lineStyle: { color: "#282937" } },
+      },
+      yAxis: {
+        type: "value",
+        name: "Usable Stock (Btls)",
+        nameTextStyle: { color: "#64748B", fontSize: 9 },
+        axisLabel: { color: "#64748B", fontSize: 10 },
+        splitLine: { lineStyle: { color: "#1F202B", type: "dashed" } },
+      },
+      series: [
+        {
+          name: "Inbound Receipts (+Qty)",
+          type: "bar",
+          data: inbounds,
+          itemStyle: { color: "#14B8A6", borderRadius: [2, 2, 0, 0] },
+          barWidth: 8,
+        },
+        {
+          name: "Usable Closing Stock",
+          type: "line",
+          data: closingStock,
+          smooth: false,
+          lineStyle: { color: "#38BDF8", width: 2 },
+          itemStyle: { color: "#38BDF8" },
+          areaStyle: {
+            color: "rgba(56, 189, 248, 0.08)",
+          },
+          markLine: {
+            silent: true,
+            lineStyle: { type: "dashed", width: 1.5 },
+            data: [
+              {
+                yAxis: targetStock,
+                lineStyle: { color: "#14B8A6" },
+                label: { formatter: `21d Target: ${Math.round(targetStock/1000)}k`, color: "#14B8A6", position: "end" },
+              },
+              {
+                yAxis: 0,
+                lineStyle: { color: "#EF4444" },
+                label: { formatter: "Stock-out (0 btls)", color: "#EF4444", position: "end" },
+              },
+            ],
+          },
+        },
+      ],
+    };
+  }, [projection]);
+
+  // ADDITIONAL CHART: DEMAND VS SUPPLY TREND
+  const demandVsSupplyOption = React.useMemo(() => {
+    if (!demandSeries || demandSeries.length === 0 || !projection) return {};
+
+    const dates = demandSeries.map(d => d.date.slice(5));
+    const demandBurn = demandSeries.map(d => Math.round(d.corrected_demand));
+    const supplyCapacity = demandSeries.map((_, idx) => {
+      const projPoint = projection.timeline?.[idx];
+      return projPoint ? Math.round(projPoint.opening_stock + projPoint.inbound_receipt_qty) : 0;
+    });
+
+    return {
+      backgroundColor: "transparent",
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: "#181922",
+        borderColor: "#282937",
+        textStyle: { color: "#F8FAFC", fontSize: 11 },
+      },
+      legend: {
+        data: ["Available Supply Capacity", "Daily Demand Velocity"],
+        textStyle: { color: "#94A3B8", fontSize: 10 },
+        top: 0,
+      },
+      grid: { top: 30, right: 20, bottom: 25, left: 55 },
+      xAxis: {
+        type: "category",
+        data: dates,
+        axisLabel: { color: "#64748B", fontSize: 10 },
+        axisLine: { lineStyle: { color: "#282937" } },
+      },
+      yAxis: {
+        type: "value",
+        axisLabel: { color: "#64748B", fontSize: 10 },
+        splitLine: { lineStyle: { color: "#1F202B" } },
+      },
+      series: [
+        {
+          name: "Available Supply Capacity",
+          type: "line",
+          data: supplyCapacity,
+          smooth: true,
+          lineStyle: { color: "#14B8A6", width: 2 },
+          areaStyle: { color: "rgba(20, 184, 166, 0.08)" },
+        },
+        {
+          name: "Daily Demand Velocity",
+          type: "line",
+          data: demandBurn,
+          smooth: true,
+          lineStyle: { color: "#F87171", width: 2 },
+          areaStyle: { color: "rgba(248, 113, 113, 0.08)" },
+        },
+      ],
+    };
+  }, [demandSeries, projection]);
+
+  // ADDITIONAL CHART: SHELF-LIFE RISK ANALYSIS
+  const shelfLifeRiskOption = React.useMemo(() => {
+    if (!detail) return {};
+
+    const stockMtQc = detail.usable_stock_mt_qc;
+    const stockGtOnly = detail.usable_stock_gt_only;
+    const shelfDays = detail.remaining_shelf_life_days;
+
+    return {
+      backgroundColor: "transparent",
+      tooltip: {
+        backgroundColor: "#181922",
+        borderColor: "#282937",
+        textStyle: { color: "#F8FAFC", fontSize: 11 },
+        formatter: (params: any) => {
+          const d = params.data;
+          return `<div style="font-weight:600; color:#F8FAFC;">Batch Lot Telemetry</div>
+                  <div style="color:#94A3B8;">Channel: <b style="color:#FFF;">${d[2]}</b></div>
+                  <div style="color:#94A3B8;">Shelf Life: <b style="color:#FFF;">${d[0]} days remaining</b></div>
+                  <div style="color:#94A3B8;">Inventory: <b style="color:#FFF;">${d[1].toLocaleString()} bottles</b></div>`;
+        },
+      },
+      grid: { top: 25, right: 25, bottom: 30, left: 65 },
+      xAxis: {
+        type: "value",
+        name: "Days Remaining",
+        nameLocation: "middle",
+        nameGap: 22,
+        nameTextStyle: { color: "#64748B", fontSize: 9 },
+        axisLabel: { color: "#64748B", fontSize: 10 },
+        splitLine: { lineStyle: { color: "#1F202B" } },
+      },
+      yAxis: {
+        type: "value",
+        name: "Stock (Btls)",
+        axisLabel: { color: "#64748B", fontSize: 10 },
+        splitLine: { lineStyle: { color: "#1F202B" } },
+      },
+      series: [
+        {
+          type: "scatter",
+          symbolSize: 20,
+          data: [
+            [shelfDays, stockMtQc, "Modern Trade & QC Eligible (>=60d)", "#14B8A6"],
+            [Math.max(15, shelfDays - 35), stockGtOnly, "General Trade Only (<60d)", "#F59E0B"],
+          ],
+          itemStyle: {
+            color: (params: any) => params.data[3],
+          },
+          markLine: {
+            silent: true,
+            data: [
+              { xAxis: 60, lineStyle: { color: "#EF4444" }, label: { formatter: "60d MT Gate", color: "#EF4444" } },
+              { xAxis: 67, lineStyle: { color: "#F59E0B" }, label: { formatter: "67d Warning", color: "#F59E0B" } },
+            ],
+          },
+        },
+      ],
+    };
+  }, [detail]);
+
+  // ALLOCATION-VS-DEMAND ALIGNMENT INDEX (CHART 1)
+  const alignmentIndexOption = React.useMemo(() => {
+    if (!alignmentReport || !alignmentReport.sku_alignment_indices) return {};
+
+    const items = [...alignmentReport.sku_alignment_indices].reverse();
+    const categories = items.map(s => `${s.sku_id} (${s.flavour})`);
+    const histData = items.map(s => s.historical_mix_index_pct);
+    const demandData = items.map(s => {
+      const isSelected = s.sku_id === selectedSku;
+      return {
+        value: s.current_allocation_index_pct,
+        itemStyle: {
+          color: isSelected ? "#1863dc" : "#0d9488",
+          borderColor: isSelected ? "#60a5fa" : "transparent",
+          borderWidth: isSelected ? 2 : 0,
+          borderRadius: [0, 4, 4, 0],
+        },
+      };
+    });
+
+    return {
+      backgroundColor: "transparent",
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        backgroundColor: "#181922",
+        borderColor: "#282937",
+        borderWidth: 1,
+        textStyle: { color: "#f5f6fa", fontSize: 11, fontFamily: "Inter, sans-serif" },
+        formatter: (params: any) => {
+          if (!params || params.length === 0) return "";
+          const idx = params[0].dataIndex;
+          const skuItem = items[idx];
+          if (!skuItem) return "";
+
+          let html = `<div style="font-weight:600; color:#ffffff; font-family:monospace; margin-bottom:4px;">
+            ${skuItem.sku_id} — ${skuItem.flavour}
+          </div>`;
+          html += `<div style="color:#b3b6c7; font-size:11px;">Historical-Mix Mismatch: <b style="color:#dc2626">${skuItem.historical_mix_index_pct}%</b></div>`;
+          html += `<div style="color:#b3b6c7; font-size:11px;">Demand-Driven Mismatch: <b style="color:#1863dc">${skuItem.current_allocation_index_pct}%</b></div>`;
+          html += `<div style="color:#0d9488; font-size:11px; margin-bottom:6px;">Improvement: <b>-${skuItem.improvement_pct}%</b> mismatch</div>`;
+
+          if (skuItem.current_depot_breakdown && skuItem.current_depot_breakdown.length > 0) {
+            html += `<div style="border-top:1px solid #282937; padding-top:4px; margin-top:4px; font-size:10px; color:#94a3b8; font-family:monospace;">TOP MISMATCH DEPOTS:</div>`;
+            const sortedDepots = [...skuItem.current_depot_breakdown]
+              .sort((a, b) => b.mismatch_contribution_pct - a.mismatch_contribution_pct)
+              .slice(0, 3);
+            sortedDepots.forEach(d => {
+              html += `<div style="font-size:10.5px; font-family:monospace; color:#cbd5e1; display:flex; justify-content:space-between; gap:8px;">
+                <span>${d.depot_id}:</span>
+                <span>Alloc <b>${d.allocation_share_pct}%</b> | Dem <b>${d.demand_share_pct}%</b> (Gap: <b>${d.mismatch_contribution_pct}%</b>)</span>
+              </div>`;
+            });
+          }
+          return html;
+        },
+      },
+      legend: {
+        data: ["Historical-Mix Allocation", "Demand-Driven Allocation (Gold/Improved)"],
+        textStyle: { color: "#b3b6c7", fontSize: 11, fontFamily: "Inter, sans-serif" },
+        top: 0,
+      },
+      grid: { left: "26%", right: "8%", top: "14%", bottom: "6%" },
+      xAxis: {
+        type: "value",
+        axisLabel: { formatter: "{value}%", color: "#b3b6c7", fontSize: 10, fontFamily: "JetBrains Mono, monospace" },
+        splitLine: { lineStyle: { color: "#1e293b", type: "dashed" } },
+        max: (val: any) => Math.max(35, Math.ceil(val.max / 5) * 5),
+      },
+      yAxis: {
+        type: "category",
+        data: categories,
+        axisLabel: { color: "#f5f6fa", fontSize: 11, fontFamily: "Inter, sans-serif", fontWeight: 500 },
+        axisLine: { lineStyle: { color: "#282937" } },
+      },
+      series: [
+        {
+          name: "Historical-Mix Allocation",
+          type: "bar",
+          data: histData,
+          barGap: "20%",
+          itemStyle: { color: "#64748b", borderRadius: [0, 4, 4, 0] },
+          label: { show: true, position: "right", formatter: "{c}%", color: "#94a3b8", fontSize: 10, fontFamily: "JetBrains Mono, monospace" },
+        },
+        {
+          name: "Demand-Driven Allocation (Gold/Improved)",
+          type: "bar",
+          data: demandData,
+          itemStyle: { color: "#1863dc", borderRadius: [0, 4, 4, 0] },
+          label: { show: true, position: "right", formatter: "{c}%", color: "#f5f6fa", fontWeight: 600, fontSize: 10, fontFamily: "JetBrains Mono, monospace" },
+        },
+      ],
+    };
+  }, [alignmentReport, selectedSku]);
+
+  const selectedSkuAlignment = React.useMemo(() => {
+    return alignmentReport?.sku_alignment_indices?.find(s => s.sku_id === selectedSku);
+  }, [alignmentReport, selectedSku]);
+
+  return (
+    <div className="space-y-5 pb-8">
+      {/* 1. TOP HEADER & SELECTORS */}
+      <section className="space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-cohere-border pb-3">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-white flex items-center space-x-2">
+              <span>Depot Operations Workspace</span>
+              <span className="font-mono text-[10px] text-cohere-muted border border-cohere-border px-2 py-0.5 rounded-pill">
+                SKU-DEPOT GRAIN
+              </span>
+            </h1>
+            <p className="text-xs text-cohere-muted mt-0.5">
+              Deep operational drilldown across 45 nodes. Latent demand recovery, inventory depletion sawtooth, and transfer governance.
+            </p>
+          </div>
+
+          {/* Selectors */}
+          <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 bg-cohere-panel border border-cohere-border px-3 py-1.5 rounded-pill">
+              <span className="text-[10px] font-mono text-cohere-muted uppercase">Depot:</span>
+              <select
+                value={selectedDepot}
+                onChange={(e) => setSelectedDepot(e.target.value)}
+                className="bg-transparent text-xs text-white font-mono font-medium focus:outline-none cursor-pointer"
+              >
+                {depots.map((d) => (
+                  <option key={d.depot_id} value={d.depot_id} className="bg-cohere-panel text-white">
+                    {d.name} ({d.depot_id})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center space-x-2 bg-cohere-panel border border-cohere-border px-3 py-1.5 rounded-pill">
+              <span className="text-[10px] font-mono text-cohere-muted uppercase">SKU:</span>
+              <select
+                value={selectedSku}
+                onChange={(e) => setSelectedSku(e.target.value)}
+                className="bg-transparent text-xs text-white font-mono font-medium focus:outline-none cursor-pointer"
+              >
+                {skus.map((s) => (
+                  <option key={s.sku_id} value={s.sku_id} className="bg-cohere-panel text-white">
+                    {s.sku_id} — {s.flavour}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Action message banner */}
+        {actionMessage && (
+          <div className="p-3 rounded-sm bg-teal-950/40 border border-teal-500/30 text-xs font-mono text-teal-300 flex items-center justify-between">
+            <span>{actionMessage}</span>
+            <button onClick={() => setActionMessage(null)} className="text-sm font-bold hover:text-white">✕</button>
+          </div>
+        )}
+      </section>
+
+      {/* 2. FIVE PRIMARY LOCAL KPIS */}
+      {detail && (
+        <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="bg-cohere-card border border-cohere-border rounded-sm p-4 hover:border-cohere-muted/60 transition-colors">
+            <div className="text-[11px] font-mono tracking-wider uppercase text-cohere-muted">Days of Cover (DoC)</div>
+            <div className="text-2xl font-bold font-mono tabular-nums text-white mt-1.5">
+              {detail.days_of_cover !== null ? `${detail.days_of_cover} Days` : "N/A"}
+            </div>
+            <div className="text-xs text-teal-400 mt-1 font-mono">Target: 21.0 Days</div>
+          </div>
+
+          <div className="bg-cohere-card border border-cohere-border rounded-sm p-4 hover:border-cohere-muted/60 transition-colors">
+            <div className="text-[11px] font-mono tracking-wider uppercase text-cohere-muted">Allocation Gap</div>
+            <div className="text-2xl font-bold font-mono tabular-nums text-white mt-1.5">
+              {detail.allocation_gap > 0 ? `+${detail.allocation_gap.toLocaleString()}` : detail.allocation_gap.toLocaleString()} <span className="text-xs font-normal text-cohere-muted">btls</span>
+            </div>
+            <div className="text-xs text-cohere-muted mt-1">Target Stock − Projected Usable</div>
+          </div>
+
+          <div className="bg-cohere-card border border-cohere-border rounded-sm p-4 hover:border-cohere-muted/60 transition-colors">
+            <div className="text-[11px] font-mono tracking-wider uppercase text-cohere-muted">Demand Uplift %</div>
+            <div className="text-2xl font-bold font-mono tabular-nums text-cohere-actionBlue mt-1.5">
+              {detail.demand_uplift_pct !== null ? `+${detail.demand_uplift_pct}%` : "0.0%"}
+            </div>
+            <div className="text-xs text-cohere-muted mt-1">(Corrected − Observed) / Observed</div>
+          </div>
+
+          <div className="bg-cohere-card border border-cohere-border rounded-sm p-4 hover:border-cohere-muted/60 transition-colors">
+            <div className="text-[11px] font-mono tracking-wider uppercase text-cohere-muted">Forecast Bias %</div>
+            <div className="text-2xl font-bold font-mono tabular-nums text-amber-400 mt-1.5">
+              {detail.forecast_bias_pct !== null ? `${detail.forecast_bias_pct > 0 ? "+" : ""}${detail.forecast_bias_pct}%` : "0.0%"}
+            </div>
+            <div className="text-xs text-cohere-muted mt-1">
+              {detail.forecast_bias_pct && detail.forecast_bias_pct < 0 ? "Underforecasting" : "Overforecasting"}
+            </div>
+          </div>
+
+          <div className="bg-cohere-card border border-cohere-border rounded-sm p-4 hover:border-cohere-muted/60 transition-colors">
+            <div className="text-[11px] font-mono tracking-wider uppercase text-cohere-muted">Estimated Fill Rate %</div>
+            <div className="text-2xl font-bold font-mono tabular-nums text-teal-400 mt-1.5">
+              {detail.service_level_fill_rate_pct !== null ? `${detail.service_level_fill_rate_pct}%` : "N/A"}
+            </div>
+            <div className="text-xs text-cohere-muted mt-1">Fulfilled / Latent Demand</div>
+          </div>
+        </section>
+      )}
+
+      {/* 3. CHARTS ROW 1: DEMAND SENSING (CHART 7) & INVENTORY SAWTOOTH (CHART 8) */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* CHART 7: DEMAND SENSING VS FORECAST */}
+        <div className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-3">
+          <div className="flex items-center justify-between border-b border-cohere-border pb-3">
+            <div>
+              <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono">
+                Chart 7 — Demand Sensing vs. Forecast Vintage
+              </div>
+              <div className="text-xs text-cohere-muted mt-0.5">
+                Observed sell-through vs. Latent Demand estimate. Red zone = censored stock-out window.
+              </div>
+            </div>
+            <span className="font-mono text-[10px] text-cohere-muted border border-cohere-border px-2 py-0.5 rounded-pill">
+              LATENT RUN-RATE
+            </span>
+          </div>
+
+          <div className="h-80 w-full">
+            <EChart
+              option={demandSensingOption}
+              height={320}
+              loading={loading}
+              empty={demandSeries.length === 0}
+              emptyText="No demand series telemetry for this node"
+            />
+          </div>
+          <div className="text-[11px] text-cohere-muted flex items-center justify-between border-t border-cohere-border/60 pt-2">
+            <span>Observed sales drop to 0 during stock-outs; Latent Demand recovers true consumer velocity.</span>
+            <span className="font-mono text-cohere-muted">[VINTAGE: 2026-W18]</span>
+          </div>
+        </div>
+
+        {/* CHART 8: PROJECTED INVENTORY DEPLETION SAWTOOTH */}
+        <div className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-3">
+          <div className="flex items-center justify-between border-b border-cohere-border pb-3">
+            <div>
+              <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono">
+                Chart 8 — Projected Inventory Depletion &amp; Cover Timeline
+              </div>
+              <div className="text-xs text-cohere-muted mt-0.5">
+                Forward 21-day depletion sawtooth with dated inbound receipts.
+              </div>
+            </div>
+            <span className="font-mono text-[10px] text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded-pill">
+              STOCK-OUT: {projection?.projected_stockout_date || "N/A"}
+            </span>
+          </div>
+
+          <div className="h-80 w-full">
+            <EChart
+              option={inventorySawtoothOption}
+              height={320}
+              loading={loading}
+              empty={!projection}
+              emptyText="No forward projection data available"
+            />
+          </div>
+          <div className="text-[11px] text-cohere-muted flex items-center justify-between border-t border-cohere-border/60 pt-2">
+            <span>Shelf-Life: {projection?.shelf_life_status || "Evaluating"} | MT/QC Gate: 60d | Warning: 67d</span>
+            <span className="font-mono text-teal-400">Target: 21 Days</span>
+          </div>
+        </div>
+      </section>
+
+      {/* 4. CHARTS ROW 2: ADDITIONAL SUPPORTING ANALYTICS */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* ADDITIONAL CHART C: DEMAND VS SUPPLY TREND */}
+        <div className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-2">
+          <div className="border-b border-cohere-border pb-2.5">
+            <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono">
+              Demand Burn vs. Available Supply Capacity
+            </div>
+            <div className="text-xs text-cohere-muted mt-0.5">Comparing daily consumption velocity against physical depot stock</div>
+          </div>
+          <div className="h-60 w-full">
+            <EChart option={demandVsSupplyOption} height={240} />
+          </div>
+        </div>
+
+        {/* ADDITIONAL CHART D: SHELF-LIFE RISK ANALYSIS */}
+        <div className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-2">
+          <div className="border-b border-cohere-border pb-2.5 flex items-center justify-between">
+            <div>
+              <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono">
+                Shelf-Life Freshness &amp; Channel Gate Risk
+              </div>
+              <div className="text-xs text-cohere-muted mt-0.5">Batches &lt;60d rejected by MT/QC; routed to General Trade via FEFO</div>
+            </div>
+            <span className="font-mono text-[10px] text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-pill">
+              67D CLIFF WARNING
+            </span>
+          </div>
+          <div className="h-60 w-full">
+            <EChart option={shelfLifeRiskOption} height={240} />
+          </div>
+        </div>
+      </section>
+
+      {/* ALLOCATION-VS-DEMAND ALIGNMENT INDEX (CHART 1) */}
+      <section className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-cohere-border pb-3 gap-2">
+          <div>
+            <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono flex items-center space-x-2">
+              <span className="badge-gold">SCM ANALYTICS</span>
+              <span>1. Allocation-vs-Demand Alignment Index (Allocation-Mismatch)</span>
+            </div>
+            <div className="text-xs text-cohere-muted mt-0.5">
+              Measures geographic stock mismatch: <span className="font-mono text-neutral-300">Σ |Allocation Share − Corrected Demand Share| / 2</span> across 9 depots. Lower values indicate tighter alignment (0% = perfect match).
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <span className="font-mono text-[10px] text-cohere-actionBlue border border-cohere-actionBlue/40 px-2.5 py-0.5 rounded-pill">
+              SELECTED: {selectedSku}
+            </span>
+            <span className="font-mono text-[10px] text-teal-300 bg-teal-950/40 border border-teal-500/30 px-2.5 py-0.5 rounded-pill">
+              GOLD BARS = DEMAND-DRIVEN (IMPROVED)
+            </span>
+          </div>
+        </div>
+
+        <div className="h-64 w-full">
+          <EChart option={alignmentIndexOption} height={250} loading={loading} />
+        </div>
+
+        {/* Selected SKU Alignment Details Strip */}
+        {selectedSkuAlignment && (
+          <div className="p-3.5 rounded-xs bg-cohere-panel border border-cohere-border space-y-2">
+            <div className="flex flex-col md:flex-row md:items-center justify-between text-xs gap-1">
+              <span className="font-mono text-white font-semibold">
+                {selectedSkuAlignment.sku_id} ({selectedSkuAlignment.flavour}) — Depot-Level Allocation vs Demand Shares
+              </span>
+              <span className="font-mono text-[10.5px] text-teal-400">
+                Mismatch Index: {selectedSkuAlignment.historical_mix_index_pct}% (Hist) ➔ {selectedSkuAlignment.current_allocation_index_pct}% (Demand-Driven) [-{selectedSkuAlignment.improvement_pct}% mismatch reduction]
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 md:grid-cols-9 gap-1.5 pt-1 text-[10.5px] font-mono">
+              {selectedSkuAlignment.current_depot_breakdown.map((d) => {
+                const isSelectedDepot = d.depot_id === selectedDepot;
+                return (
+                  <div 
+                    key={d.depot_id}
+                    className={`p-2 rounded-xs border ${isSelectedDepot ? "bg-cohere-surface border-cohere-actionBlue" : "bg-cohere-card border-cohere-border"} space-y-0.5`}
+                  >
+                    <div className="text-cohere-muted truncate text-[10px] font-semibold">{d.depot_id}</div>
+                    <div className="text-neutral-300 flex justify-between">
+                      <span className="text-[9px] text-cohere-muted">Alloc:</span>
+                      <span className="tabular-nums font-medium">{d.allocation_share_pct}%</span>
+                    </div>
+                    <div className="text-neutral-300 flex justify-between">
+                      <span className="text-[9px] text-cohere-muted">Demand:</span>
+                      <span className="tabular-nums font-medium text-white">{d.demand_share_pct}%</span>
+                    </div>
+                    <div className="text-neutral-300 flex justify-between border-t border-cohere-border/40 pt-0.5">
+                      <span className="text-[9px] text-cohere-muted">Gap:</span>
+                      <span className={`tabular-nums font-semibold ${d.mismatch_contribution_pct > 3.0 ? "text-scm-critical" : "text-scm-healthy"}`}>
+                        {d.mismatch_contribution_pct}%
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* 5. REBALANCING PROPOSALS TABLE & MANUAL REPORT FORM */}
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* REBALANCING PROPOSALS (2 COLS) */}
+        <div className="lg:col-span-2 bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-cohere-border pb-3">
+            <div>
+              <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono">
+                Feasible Inter-Depot Rebalancing Proposals ({proposals.length})
+              </div>
+              <div className="text-xs text-cohere-muted mt-0.5">
+                Strict guardrail enforcement: donor post-transfer cover must remain &ge; 21.0 days.
+              </div>
+            </div>
+            <span className="font-mono text-[10px] text-teal-300 bg-teal-950/40 border border-teal-500/30 px-2.5 py-0.5 rounded-pill">
+              RATE: ₹1.50/BTL
+            </span>
+          </div>
+
+          {proposals.length === 0 ? (
+            <div className="p-8 text-center text-xs font-mono text-cohere-muted bg-cohere-panel rounded-sm border border-cohere-border">
+              No feasible inter-depot transfers found satisfying donor safety stock &ge; 21d cover.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-cohere-border text-cohere-muted text-[10px] uppercase font-mono tracking-wider">
+                    <th className="py-2.5 px-3">Ticket</th>
+                    <th className="py-2.5 px-3">Origin ➔ Dest</th>
+                    <th className="py-2.5 px-3 text-right">Quantity</th>
+                    <th className="py-2.5 px-3 text-right">Freight Cost</th>
+                    <th className="py-2.5 px-3 text-center">Donor Cover</th>
+                    <th className="py-2.5 px-3 text-center">Status</th>
+                    <th className="py-2.5 px-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-cohere-border font-mono text-xs">
+                  {proposals.map((p) => (
+                    <React.Fragment key={p.recommendation_id}>
+                      <tr className="hover:bg-cohere-surface/40 transition-colors">
+                        <td className="py-2.5 px-3 font-medium text-white">{p.recommendation_id}</td>
+                        <td className="py-2.5 px-3 text-cohere-muted">
+                          <span className="text-neutral-300">{p.origin_depot_id}</span>
+                          <ArrowRight className="w-3 h-3 text-cohere-actionBlue inline mx-1.5" />
+                          <span className="text-white font-medium">{p.destination_depot_id}</span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-medium text-white tabular-nums">
+                          {p.quantity_bottles.toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-cohere-muted tabular-nums">
+                          ₹{Math.round(p.cost_inr).toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 text-center text-teal-400 font-medium tabular-nums">
+                          {p.donor_post_cover_days}d
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className={
+                            p.status === "APPROVED" 
+                              ? "font-mono text-[10px] text-teal-400 border border-teal-500/30 px-2 py-0.5 rounded-pill" 
+                              : p.status === "REJECTED" 
+                              ? "font-mono text-[10px] text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded-pill" 
+                              : "font-mono text-[10px] text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-pill"
+                          }>
+                            [{p.status}]
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right space-x-1.5 whitespace-nowrap">
+                          {p.status === "PENDING" ? (
+                            <>
+                              <button
+                                onClick={() => handleDecision(p.recommendation_id, "APPROVE")}
+                                className="px-2.5 py-1 rounded-pill bg-cohere-surface border border-cohere-border text-teal-400 hover:border-teal-400 text-[10px] font-mono transition-colors"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setModifyingProposal(p);
+                                  setModifiedQty(p.quantity_bottles);
+                                }}
+                                className="px-2.5 py-1 rounded-pill bg-cohere-surface border border-cohere-border text-white hover:border-cohere-muted text-[10px] font-mono transition-colors"
+                              >
+                                Modify
+                              </button>
+                              <button
+                                onClick={() => handleDecision(p.recommendation_id, "REJECT")}
+                                className="px-2.5 py-1 rounded-pill bg-cohere-surface border border-cohere-border text-rose-400 hover:border-rose-400 text-[10px] font-mono transition-colors"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-[10px] text-cohere-muted italic font-sans">Committed</span>
+                          )}
+                        </td>
+                      </tr>
+                      {p.selection_rationale && (
+                        <tr className="bg-cohere-panel/40">
+                          <td colSpan={7} className="py-1.5 px-3 text-[10.5px] font-mono text-cohere-muted border-b border-cohere-border">
+                            <span className="text-white font-medium">Feasibility Rationale:</span> {p.selection_rationale}
+                            {p.rejected_alternatives && (
+                              <span className="text-cohere-muted ml-2 italic">({p.rejected_alternatives})</span>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* MANUAL STOCKOUT REPORTING FORM (1 COL) */}
+        <div className="bg-cohere-card border border-cohere-border rounded-sm p-5 space-y-4">
+          <div className="border-b border-cohere-border pb-3">
+            <div className="text-xs font-semibold text-white tracking-wide uppercase font-mono flex items-center space-x-1.5">
+              <AlertCircle className="w-3.5 h-3.5 text-cohere-actionBlue" />
+              <span>Log Manual Stock-Out Incident</span>
+            </div>
+            <div className="text-xs text-cohere-muted mt-0.5">
+              Report field stock-out from dark stores to update latent demand.
+            </div>
+          </div>
+
+          {reportSuccess && (
+            <div className="p-3 rounded-sm bg-teal-950/40 border border-teal-500/30 text-xs text-teal-300 font-mono">
+              {reportSuccess}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmitStockout} className="space-y-3 text-xs">
+            <div>
+              <label className="block text-[10px] font-mono text-cohere-muted uppercase mb-1">Channel:</label>
+              <select
+                value={channel}
+                onChange={(e) => setChannel(e.target.value)}
+                className="w-full bg-cohere-panel border border-cohere-border rounded-sm px-3 py-2 text-xs text-white focus:outline-none focus:border-cohere-actionBlue cursor-pointer"
+              >
+                <option value="Quick Commerce" className="bg-cohere-panel">Quick Commerce (Zepto/Blinkit/Instamart)</option>
+                <option value="Modern Trade" className="bg-cohere-panel">Modern Trade (DMart/Reliance)</option>
+                <option value="General Trade" className="bg-cohere-panel">General Trade (Kiranas)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-mono text-cohere-muted uppercase mb-1">
+                Estimated Unmet Demand (Bottles):
+              </label>
+              <input
+                type="number"
+                value={unmetBottles}
+                onChange={(e) => setUnmetBottles(parseInt(e.target.value) || 0)}
+                className="w-full bg-cohere-panel border border-cohere-border rounded-sm px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cohere-actionBlue tabular-nums"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-mono text-cohere-muted uppercase mb-1">Evidence Source:</label>
+              <input
+                type="text"
+                value={evidence}
+                onChange={(e) => setEvidence(e.target.value)}
+                className="w-full bg-cohere-panel border border-cohere-border rounded-sm px-3 py-2 text-xs text-white focus:outline-none focus:border-cohere-actionBlue"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-mono text-cohere-muted uppercase mb-1">Reporter Role:</label>
+              <input
+                type="text"
+                value={reporter}
+                onChange={(e) => setReporter(e.target.value)}
+                className="w-full bg-cohere-panel border border-cohere-border rounded-sm px-3 py-2 text-xs text-white focus:outline-none focus:border-cohere-actionBlue"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-2.5 rounded-pill bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition-colors flex items-center justify-center space-x-1.5 mt-2"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>Submit &amp; Recalibrate Demand</span>
+            </button>
+          </form>
+        </div>
+      </section>
+
+      {/* MODIFY QUANTITY MODAL */}
+      {modifyingProposal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <div className="bg-cohere-card border border-cohere-border rounded-md max-w-sm w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-cohere-border pb-3">
+              <span className="font-mono font-medium text-xs text-white uppercase tracking-wider">
+                MODIFY QUANTITY [{modifyingProposal.recommendation_id}]
+              </span>
+              <button onClick={() => setModifyingProposal(null)} className="text-cohere-muted hover:text-white text-sm font-bold">✕</button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="text-cohere-muted">
+                Original Quantity: <b className="text-white font-mono tabular-nums">{modifyingProposal.quantity_bottles.toLocaleString()} btls</b>
+              </div>
+              <div>
+                <label className="block text-[10px] font-mono text-cohere-muted uppercase mb-1">New Transfer Quantity:</label>
+                <input
+                  type="number"
+                  value={modifiedQty}
+                  onChange={(e) => setModifiedQty(parseInt(e.target.value) || 0)}
+                  className="w-full bg-cohere-panel border border-cohere-border rounded-sm px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-cohere-actionBlue tabular-nums"
+                />
+              </div>
+              <div className="text-[11px] text-cohere-muted">
+                New Transfer Cost: <span className="font-mono text-white">₹{Math.round(modifiedQty * 1.5).toLocaleString()}</span> (@ ₹1.50/btl)
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-3 border-t border-cohere-border font-mono text-xs">
+              <button
+                onClick={() => setModifyingProposal(null)}
+                className="px-3 py-1.5 rounded-pill bg-cohere-surface border border-cohere-border text-neutral-300 hover:text-white text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  handleDecision(modifyingProposal.recommendation_id, "MODIFY", modifiedQty);
+                  setModifyingProposal(null);
+                }}
+                className="px-3.5 py-1.5 rounded-pill bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition-colors"
+              >
+                Confirm Modification
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

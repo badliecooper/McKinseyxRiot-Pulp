@@ -1,0 +1,43 @@
+report_id,reported_at,depot_id,sku_id,channel,reported_by,evidence_source,estimated_unmet_bottles,notes
+REP-2026-0324-01,2026-03-24 10:15:00,Depot-West-01,PR-DP,QC,Depot Ops Lead - Mumbai,Blinkit partner dark store inventory logs,24000.0,Viral video spike accelerated QC demand 4x; stock depleted across 14 dark stores.
+REP-2026-0326-02,2026-03-26 14:30:00,Depot-North-01,PR-DP,QC,Area Sales Lead - Delhi,Zepto platform unfulfilled customer search logs,18500.0,QC app registered zero stock across NCR dark stores.
+REP-2026-0416-03,2026-04-16 11:20:00,Depot-North-01,PR-GC,GT,Regional Sales Manager - North,Distributor unfilled purchase orders,16200.0,Summer heat surge created 9d cover deficit against historical allocation quotas.
+REP-2026-0518-04,2026-05-18 10:30:00,Depot-West-01,PR-DP,QC,Depot Ops Lead - West,Blinkit/Zepto partner dark store stockout logs,28500.0,QC orders zeroed out across 18 dark stores. Demand sensing triggered rebalancing.
+REP-2026-0519-05,2026-05-19 14:15:00,Depot-North-01,PR-PP,GT,GT Area Sales Manager - Delhi,Distributor unfilled PO slips,18200.0,Passionfruit punch stock depleted due to highway transit cut.
+REP-TEST-001,2026-05-20 12:00:00,Depot-West-01,PR-DP,QC,Test Reporter,Unit Test,5000.0,Updated notes
+REP-1024193557,2026-10-24 19:35:57,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1024193716,2026-10-24 19:37:16,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1024193752,2026-10-24 19:37:52,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1024193837,2026-10-24 19:38:37,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1024195055,2026-10-24 19:50:55,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1024204828,2026-10-24 20:48:28,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1024210342,2026-10-24 21:03:42,Depot-West-01,PR-DP,General Trade,Store Operations Lead,SHIT,15000.0,Zero inventory across 14 dark stores during peak velocity surge.
+REP-1024233643,2026-10-24 23:36:43,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1024235459,2026-10-24 23:54:59,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1024235955,2026-10-24 23:59:55,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1025011628,2026-10-25 01:16:28,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1025013930,2026-10-25 01:39:30,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1025014456,2026-10-25 01:44:56,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1025015817,2026-10-25 01:58:17,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1025022702,2026-10-25 02:27:02,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1025030742,2026-10-25 03:07:42,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1025032508,2026-10-25 03:25:08,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1025032621,2026-10-25 03:26:21,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1025042230,2026-10-25 04:22:30,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1025042618,2026-10-25 04:26:18,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-1025050143,2026-10-25 05:01:43,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-TEST-001,2026-05-20 12:00:00,Depot-West-01,PR-DP,QC,Test Reporter,Unit Test,5000,Updated notes
+REP-1025051225,2026-10-25 05:12:25,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-TEST-001,2026-05-20 12:00:00,Depot-West-01,PR-DP,QC,Test Reporter,Unit Test,5000,Updated notes
+REP-1025064037,2026-10-25 06:40:37,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-TEST-001,2026-05-20 12:00:00,Depot-West-01,PR-DP,QC,Test Reporter,Unit Test,5000,Updated notes
+REP-1025071908,2026-10-25 07:19:08,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-TEST-001,2026-05-20 12:00:00,Depot-West-01,PR-DP,QC,Test Reporter,Unit Test,5000,Updated notes
+REP-1025075321,2026-10-25 07:53:21,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-TEST-001,2026-05-20 12:00:00,Depot-West-01,PR-DP,QC,Test Reporter,Unit Test,5000,Updated notes
+REP-1025080048,2026-10-25 08:00:48,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-TEST-001,2026-05-20 12:00:00,Depot-West-01,PR-DP,QC,Test Reporter,Unit Test,5000,Updated notes
+REP-1025081415,2026-10-25 08:14:15,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-TEST-001,2026-05-20 12:00:00,Depot-West-01,PR-DP,QC,Test Reporter,Unit Test,5000,Updated notes
+REP-1025093325,2026-10-25 09:33:25,Depot-North-01,PR-DP,Quick Commerce,Regional Planner,Zepto dark store logs,12000.0,Zepto dark store surge reported
+REP-TEST-001,2026-05-20 12:00:00,Depot-West-01,PR-DP,QC,Test Reporter,Unit Test,5000,Updated notes

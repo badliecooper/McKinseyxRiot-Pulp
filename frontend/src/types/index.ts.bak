@@ -1,0 +1,230 @@
+export interface ModuleStatus {
+  status: "CRITICAL" | "WARN" | "OK";
+  reason: string;
+  signal: string;
+}
+
+export interface HealthRibbon {
+  Demand: ModuleStatus;
+  Supply: ModuleStatus;
+  Inventory: ModuleStatus;
+  Distribution: ModuleStatus;
+  Transportation: ModuleStatus;
+}
+
+export interface NationalKPIs {
+  depots_at_risk: string;
+  forecast_wape_pct: string;
+  naive_benchmark_wape_pct: string;
+  projected_shortage_bottles: number;
+  transfer_opportunities_count: number;
+  detection_lead_time_days: number;
+  pending_decisions_count: number;
+}
+
+export interface HeatmapCell {
+  depot_id: string;
+  sku_id: string;
+  flavour: string;
+  value: number | null;
+  allocation_gap: number;
+  days_of_cover: number | null;
+  wape_pct: number | null;
+  corrected_demand: number;
+  total_usable_stock: number;
+}
+
+export interface HeatmapResponse {
+  metric: string;
+  columns: string[];
+  rows: string[];
+  matrix: (number | null)[][];
+  cells: HeatmapCell[];
+}
+
+export interface RiskMatrixPoint {
+  sku_id: string;
+  flavour: string;
+  depot_id: string;
+  depot_name: string;
+  forecast_demand: number;
+  days_of_cover: number | null;
+  allocation_gap: number;
+  projected_stockout_date: string;
+  risk_level: "CRITICAL" | "WARNING" | "SURPLUS" | "HEALTHY";
+}
+
+export interface RiskMatrixResponse {
+  points: RiskMatrixPoint[];
+  thresholds: {
+    critical_cover_days: number;
+    warning_cover_days: number;
+    target_cover_days: number;
+    high_demand_threshold: number;
+  };
+}
+
+export interface RebalancingProposal {
+  recommendation_id: string;
+  created_at: string;
+  priority: "P1" | "P2";
+  module: string;
+  sku_id: string;
+  flavour: string;
+  origin_depot_id: string;
+  destination_depot_id: string;
+  action_type: string;
+  quantity_bottles: number;
+  cost_inr: number;
+  protected_contribution_inr: number;
+  lead_time_days: number;
+  eta_days: number;
+  shelf_life_status: string;
+  channel_eligibility: string;
+  donor_cover_before_days: number;
+  donor_post_cover_days: number;
+  destination_cover_before_days: number;
+  destination_post_cover_days: number;
+  shortage_reduction_bottles: number;
+  status: "PENDING" | "APPROVED" | "MODIFIED" | "REJECTED";
+  confidence_level: string;
+  diagnosis: string;
+  selection_rationale?: string;
+  rejected_alternatives?: string;
+  candidates_evaluated?: any[];
+  is_synthetic: boolean;
+}
+
+export interface RootCauseShare {
+  label: string;
+  share_pct: number;
+  allocated_revenue_exposure_inr_cr: number;
+  allocated_contribution_exposure_inr_cr: number;
+  min_pct: number;
+  max_pct: number;
+}
+
+export interface LossAttributionData {
+  title: string;
+  stockout_lost_revenue_inr_cr: number;
+  foregone_contribution_inr_cr: number;
+  writeoffs_and_discounts_inr_cr: number;
+  emergency_air_freight_inr_cr: number;
+  bottom_line_exposure_inr_cr: number;
+  year_1_system_budget_cap_inr_cr: number;
+  break_even_recovery_hurdle_pct: number;
+  margin_pct: number;
+  competitive_shelf_space_impact: string;
+  root_cause_breakdown: Record<string, RootCauseShare>;
+  disclaimer: string;
+  shares_sum_pct?: number;
+}
+
+export interface AlarmItem {
+  alarm_id: string;
+  created_at: string;
+  updated_at: string;
+  alarm_type: string;
+  severity: "CRITICAL" | "WARNING" | "INFO";
+  status: "NEW" | "ACKNOWLEDGED" | "RESOLVED";
+  sku_id?: string;
+  depot_id?: string;
+  channel?: string;
+  title: string;
+  description: string;
+  observed_value: string;
+  threshold_value: string;
+  source: string;
+  confidence_level: string;
+  recommended_action: string;
+  recommendation_id?: string;
+  acknowledged_by?: string;
+  acknowledged_at?: string;
+  resolved_at?: string;
+  resolution_notes?: string;
+  is_read?: boolean;
+  is_synthetic: boolean;
+}
+
+export interface SkuDepotItem {
+  sku_id: string;
+  flavour: string;
+  depot_id: string;
+  depot_name: string;
+  region: string;
+  observed_demand: number;
+  censored_adjustment: number;
+  corrected_demand: number;
+  demand_uplift_pct: number | null;
+  forecast_demand: number;
+  forecast_vintage_id: string;
+  usable_stock_mt_qc: number;
+  usable_stock_gt_only: number;
+  total_usable_stock: number;
+  remaining_shelf_life_days: number;
+  inbound_qty: number;
+  otif_status: string;
+  target_stock: number;
+  allocation_gap: number;
+  days_of_cover: number | null;
+  projected_stockout_date: string;
+  proposed_transfer_in_qty: number;
+  proposed_transfer_out_qty: number;
+  transfer_cost_inr: number;
+  eta_days: number;
+  wape_pct: number | null;
+  forecast_bias_pct: number | null;
+  confidence_level: string;
+  service_level_fill_rate_pct: number | null;
+  is_synthetic: boolean;
+}
+
+export interface DemandSeriesPoint {
+  date: string;
+  observed_sales: number;
+  corrected_demand: number;
+  censored_adjustment: number;
+  forecast_demand: number;
+  is_stockout_flagged: boolean;
+  channel: string;
+}
+
+export interface InventoryProjectionPoint {
+  date: string;
+  opening_stock: number;
+  inbound_receipt_qty: number;
+  daily_demand_burn: number;
+  closing_stock: number;
+  is_stocked_out: boolean;
+}
+
+export interface ScenarioData {
+  scenario_id: string;
+  title: string;
+  kpis: {
+    detection_advantage_days: number;
+    shortage_reduction_bottles: number;
+    rebalancing_coverage_pct: number;
+    net_mitigation_cost_inr: number;
+    protected_contribution_inr: number;
+  };
+  timeline_events: {
+    first_signal_date: string;
+    agent_flag_date: string;
+    human_approval_date: string;
+    transfer_arrival_date: string;
+    historical_planner_notice_date: string;
+  };
+  waterfall: {
+    label: string;
+    value: number;
+    type: "absolute" | "relative" | "total";
+    annotation: string;
+  }[];
+  daily_cover_comparison: {
+    day: number;
+    historical_cover_days: number;
+    radar_cover_days: number;
+  }[];
+  supply_constraints_note: string;
+}

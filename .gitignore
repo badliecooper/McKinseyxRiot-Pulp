@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+.pytest_cache/
+
+# React / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.tmp/
+node_modules/
+dist/
+
+# Environment and secrets
+.env
+.env.local
+*.secret
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# Keep required demo data CSV files intact in data/
+!data/*.csv
